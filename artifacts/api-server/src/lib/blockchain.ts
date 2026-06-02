@@ -305,7 +305,7 @@ export async function claimAllStakingRewards(params: {
   const privkey = Buffer.from(privkeyHex, "hex");
   const wallet = await DirectSecp256k1Wallet.fromKey(privkey, MEC_PREFIX);
   const rpcUrl = network === "testnet" ? MEC_TESTNET_RPC : MEC_MAINNET_RPC;
-  const client = await SigningStargateClient.connectWithSigner(rpcUrl, wallet, { prefix: MEC_PREFIX });
+  const client = await SigningStargateClient.connectWithSigner(rpcUrl, wallet);
 
   const delegatorMe = normalizeMeAddress(delegatorAddress);
 
@@ -573,9 +573,7 @@ export async function sendMEC(params: {
 
   const rpcUrl = network === "testnet" ? MEC_TESTNET_RPC : MEC_MAINNET_RPC;
 
-  const client = await SigningStargateClient.connectWithSigner(rpcUrl, wallet, {
-    prefix: MEC_PREFIX,
-  });
+  const client = await SigningStargateClient.connectWithSigner(rpcUrl, wallet);
 
   const amountUMec = Math.floor(amountMEC * 100_000_000).toString();
   const fee = {

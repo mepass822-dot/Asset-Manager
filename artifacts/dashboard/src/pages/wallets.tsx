@@ -301,7 +301,7 @@ function BulkImportDialog({ onImported }: { onImported: () => void }) {
       if (tab === "mnemonic") {
         const phrases = text.trim().split("\n").map(l => l.trim()).filter(Boolean);
         bulkImport.mutate(
-          { data: { mnemonics: phrases, password, network } },
+          { data: { mnemonics: phrases.join("\n"), password, network } },
           {
             onSuccess: (data: any) => {
               setResult(data);
