@@ -32,40 +32,51 @@ AI-driven wallet management agent for the Meta Earth (MEC) blockchain — monito
 
 ## Architecture decisions
 
-- **Coin type 118 (Cosmos standard)**: The `gc_20-1` chain is pure Cosmos SDK (no EVM module confirmed by direct chain probe). Coin type 60 (Ethermint/EVM) is NOT used.
-- **gc1... addresses for balance queries**: The REST LCD (`118.175.0.247:1317`) only accepts `gc1...` bech32 prefix. `me1...` and `gc1...` are identical raw bytes with different HRP — `meToGcAddress()` handles the conversion.
-- **Native denom `ugc`**: Confirmed via on-chain supply query. Total supply ~100 trillion ugc. Displayed as "MEC" in the UI. 1 MEC = 1,000,000 ugc.
-- **Extension import uses provided address**: When importing from the Meta Earth Chrome extension, we trust the extension's address directly rather than re-deriving (which could use a different HD path). This is the key fix for balance display.
-- **NVIDIA NIM via `nvidia-nim` base URL**: Uses `meta/llama-3.1-70b-instruct` model for agent decision-making.
+- **Coin type 118** — confirmed from official SDK source (`instanceME` sets `m/44'/118'/0'/0/<index>`). Standard Cosmos SDK, NOT EVM coin type 60.
+- **Bech32 prefix `me`** — addresses are `me1...` everywhere. The ME Hub REST accepts `me1...` directly; no conversion needed.
+- **Native denom `umec`** — confirmed from chain supply and SDK source. 1 MEC = 1,000,000 umec.
+- **Extension import uses provided address** — trust the extension's address directly; never re-derive from mnemonic during import.
+- **NVIDIA NIM via `nvidia-nim` base URL** — uses `meta/llama-3.1-70b-instruct` model.
 
 ## Product
 
 - Manage multiple MEC wallets (import via mnemonic, private key, or Chrome extension)
-- Real-time on-chain balance display (ugc / MEC)
+- Real-time on-chain balance display (umec / MEC)
 - AI agent (NVIDIA NIM / Llama 3.1) for autonomous transfer decisions
 - Address whitelist for security guardrails
 - Send MEC with pre-flight balance check and key mismatch detection
 
-## Chain facts (gc_20-1) — confirmed by direct probing
+## Chain facts (me-chain) — confirmed from official SDK + direct probing
 
 ```
-Chain ID   : gc_20-1
-App        : gead v1.1.2-callisto-5 (CometBFT 0.37.5)
-VM         : Cosmos SDK only — NO EVM/Ethermint module
-Bech32     : "gc" on-chain, "me" user-facing (same raw bytes)
-Denom      : ugc (micro-GC), total supply ~100 trillion ugc
-HD path    : m/44'/118'/0'/0/<index>
-REST LCD   : http://118.175.0.247:1317  (only public endpoint)
-RPC        : http://118.175.0.247:26657
-Docs       : https://docs.mec.me
+Chain ID (mainnet) : me-chain
+Chain ID (testnet) : mechain_400-1
+App                : me-hub (med v2.0.13+) — Cosmos SDK + Ethermint modules
+Bech32 prefix      : me  →  me1... addresses
+Native denom       : umec (micro-MEC), total supply ~1.76 quadrillion
+HD path            : m/44'/118'/0'/0/<index>  (coin type 118, Cosmos standard)
+Gas limit          : 500000
+Gas price          : 0.02 umec/gas
+Network fee        : 10000 umec  (= 500000 × 0.02)
+
+Mainnet Hub REST LCD : http://118.175.0.247:11317   ← PORT 11317, not 1317!
+Mainnet Hub RPC      : http://118.175.0.247:16657
+Testnet Hub REST LCD : http://118.175.0.249:1317
+Testnet Hub RPC      : http://118.175.0.249:26657
+
+Rollup REST (mainnet): http://118.175.0.247:23013
+Rollup REST (testnet): http://118.175.0.249:3317
+
+SDK source: github.com/openmetaearth/meta-earth-js-sdk (master branch)
+Docs      : https://docs.mec.me
 ```
 
 ## Gotchas
 
-- **Balance shows 0 after fresh import**: Wallets imported before the extension import fix had addresses re-derived with coin type 118. If the extension used a different HD path internally, those addresses differ → delete and re-import via the extension bridge.
-- **gc_20-1 vs ME Network 2.0**: ME Network 2.0 was activated May 19 2025. The node at `118.175.0.247` may be a legacy or private node. If the extension shows balance but the app shows 0, the funds may be on a different chain endpoint not publicly accessible from Replit.
-- **All other public endpoints (me-explorer.me-network.me etc.) are DNS-unresolvable** from Replit. Only `118.175.0.247:1317` is reachable.
-- **1 GC fee per transaction**: `sendMEC` charges 1,000,000 ugc (1 GC) as network fee.
+- **WRONG PORT** was the root cause of balance showing 0: querying `118.175.0.247:1317` (old `gc_20-1` chain with `ugc` denom) instead of the correct `118.175.0.247:11317` (me-hub with `umec` denom).
+- **The `gc_20-1` chain at port 1317** is a legacy/different chain. It uses `ugc` denom and `gc1...` addresses. Do NOT confuse with the real ME Hub.
+- **1 MEC = 1,000,000 umec** — all amounts on-chain are in umec.
+- **Extension import** — always use the address the extension provides; don't re-derive.
 
 ## User preferences
 

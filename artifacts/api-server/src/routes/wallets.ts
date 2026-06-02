@@ -8,8 +8,10 @@ import {
   GetWalletBalanceParams,
 } from "@workspace/api-zod";
 import { encryptMnemonic, decryptMnemonic } from "../lib/crypto";
-import { queryBalance, deriveMECAddressAsync, deriveMultipleAccounts, deriveAddressFromPrivateKey, PRIVATE_KEY_PREFIX, sendMEC, getPrivateKeyHex, meToGcAddress, gcAddressFromPrivkeyHex } from "../lib/blockchain";
+import { queryBalance, deriveMECAddressAsync, deriveMultipleAccounts, deriveAddressFromPrivateKey, PRIVATE_KEY_PREFIX, sendMEC, getPrivateKeyHex, normalizeMeAddress, gcAddressFromPrivkeyHex } from "../lib/blockchain";
 import { whitelistTable } from "@workspace/db";
+
+const meToGcAddress = normalizeMeAddress;
 
 const router = Router();
 
@@ -26,10 +28,10 @@ router.get("/wallets", async (req, res): Promise<void> => {
     .from(walletsTable)
     .orderBy(walletsTable.createdAt);
 
-  // Attach the on-chain gc1... address alongside each wallet
+  // Attach the normalized me1... address alongside each wallet
   const walletsWithGc = wallets.map((w) => {
     let gcAddress: string | null = null;
-    try { gcAddress = meToGcAddress(w.address); } catch { /* ignore */ }
+    try { gcAddress = normalizeMeAddress(w.address); } catch { /* ignore */ }
     return { ...w, gcAddress };
   });
 
@@ -245,7 +247,7 @@ router.post("/wallets/:id/send", async (req, res): Promise<void> => {
   } catch { /* if balance check fails, proceed and let the chain error speak */ }
 
   try {
-    const result = await sendMEC({ privkeyHex, fromAddress: wallet.address, toAddress, amountMEC, memo });
+    const result = await sendMEC({ privkeyHex, fromAddress: wallet.address, toAddress, amountMEC, network: wallet.network ?? "mainnet", memo });
     req.log.info({ walletId: id, txHash: result.txHash, amountMEC, toAddress }, "MEC sent");
     res.json({ txHash: result.txHash, height: result.height, fromAddress: wallet.address, toAddress, amountMEC });
   } catch (err) {

@@ -1,0 +1,1 @@
+- [Meta Earth chain config](meta-earth-chain.md) — correct endpoints, denom, port; wrong port (1317 vs 11317) was root cause of 0 balance.

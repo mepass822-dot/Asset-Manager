@@ -5,17 +5,27 @@ import { fromBech32, toBech32 } from "@cosmjs/encoding";
 import { DirectSecp256k1Wallet } from "@cosmjs/proto-signing";
 import { SigningStargateClient } from "@cosmjs/stargate";
 
-// ─── Meta Earth (gc_20-1) Chain Constants ─────────────────────────────────────
+// ─── Meta Earth Chain Constants ────────────────────────────────────────────────
 //
-// Confirmed by direct chain probing:
-//   Chain ID  : gc_20-1
-//   App       : gead v1.1.2-callisto-5
-//   Consensus : CometBFT 0.37.5 (pure Cosmos SDK — NO EVM/Ethermint module)
-//   Bech32    : "gc" prefix on-chain, "me" prefix user-facing (same raw bytes)
-//   Native denom: "ugc" (micro-GC) — total supply ~100 trillion ugc
-//   HD coin type: 118 (standard Cosmos — NOT 60, as there is no EVM module)
-//   REST LCD  : http://118.175.0.247:1317  (only working public endpoint)
-//   RPC       : http://118.175.0.247:26657
+// All values confirmed from the official meta-earth-js-sdk source
+// (github.com/openmetaearth/meta-earth-js-sdk, master branch, src/config/define.ts)
+// and direct chain probing.
+//
+//   Chain ID      : me-chain          (mainnet) / mechain_400-1 (testnet)
+//   App           : me-hub (med) — Cosmos SDK + Ethermint modules
+//   Bech32 prefix : "me"   → addresses are me1...
+//   Native denom  : umec   (micro-MEC), total supply ~1.76 quadrillion
+//   HD coin type  : 118    (standard Cosmos — confirmed from SDK instanceME)
+//   HD path       : m/44'/118'/0'/0/<index>
+//
+//   Mainnet Hub REST LCD : http://118.175.0.247:11317
+//   Mainnet Hub RPC      : http://118.175.0.247:16657
+//   Testnet Hub REST LCD : http://118.175.0.249:1317
+//   Testnet Hub RPC      : http://118.175.0.249:26657
+//
+//   Gas limit    : 500000
+//   Gas price    : 0.02 umec/gas
+//   Min fee      : 10000 umec  (= 500000 × 0.02)
 //
 // Docs: https://docs.mec.me
 
@@ -28,14 +38,20 @@ const MEC_COIN_TYPE = 118;
  */
 export const PRIVATE_KEY_PREFIX = "pk:";
 
-// The REST LCD only accepts gc1... bech32 addresses.
-// me1... and gc1... are identical raw bytes — just different HRP.
 const MAINNET_ENDPOINTS = [
-  { base: "http://118.175.0.247:1317", path: (a: string) => `/cosmos/bank/v1beta1/balances/${a}`, type: "cosmos" as const },
+  {
+    base: "http://118.175.0.247:11317",
+    path: (a: string) => `/cosmos/bank/v1beta1/balances/${a}`,
+    type: "cosmos" as const,
+  },
 ];
 
 const TESTNET_ENDPOINTS = [
-  { base: "http://118.175.0.247:1317", path: (a: string) => `/cosmos/bank/v1beta1/balances/${a}`, type: "cosmos" as const },
+  {
+    base: "http://118.175.0.249:1317",
+    path: (a: string) => `/cosmos/bank/v1beta1/balances/${a}`,
+    type: "cosmos" as const,
+  },
 ];
 
 export interface BalanceResult {
@@ -51,12 +67,12 @@ export interface DerivedAccount {
   hdPath: string;
 }
 
-function parseCosmosBalance(data: unknown, address: string): BalanceResult | null {
+function parseCosmosBalance(data: unknown, address: string): BalanceResult {
   const balances: Array<{ denom: string; amount: string }> =
     (data as { balances?: Array<{ denom: string; amount: string }> })?.balances ?? [];
-  // Chain native denom is "ugc"; also accept "umec" as fallback
-  const mec = balances.find((b) => b.denom === "ugc")
-    ?? balances.find((b) => b.denom === "umec")
+  // Official denom is "umec"; accept "ugc" as fallback for the legacy gc_20-1 node
+  const mec = balances.find((b) => b.denom === "umec")
+    ?? balances.find((b) => b.denom === "ugc")
     ?? balances[0];
   if (mec) {
     const amount = (parseFloat(mec.amount) / 1_000_000).toFixed(6);
@@ -65,60 +81,27 @@ function parseCosmosBalance(data: unknown, address: string): BalanceResult | nul
   return { address, balance: "0.000000", denom: "MEC" };
 }
 
-function parseCustomBalance(data: unknown, address: string): BalanceResult | null {
-  if (!data || typeof data !== "object") return null;
-  const d = data as Record<string, unknown>;
-
-  // {balance: "123456", denom: "umec"} or {amount: "123456"}
-  const raw = d["balance"] ?? d["amount"] ?? d["umec"];
-  if (typeof raw === "string" || typeof raw === "number") {
-    const amount = (parseFloat(String(raw)) / 1_000_000).toFixed(6);
-    return { address, balance: amount, denom: "MEC" };
-  }
-
-  // {balances: [{denom, amount}]}
-  if (Array.isArray(d["balances"])) {
-    return parseCosmosBalance(data, address);
-  }
-
-  // {data: {balance: ...}}
-  if (d["data"] && typeof d["data"] === "object") {
-    return parseCustomBalance(d["data"], address);
-  }
-
-  return null;
-}
-
 export async function queryBalance(address: string, network: string): Promise<BalanceResult> {
   const endpoints = network === "testnet" ? TESTNET_ENDPOINTS : MAINNET_ENDPOINTS;
   const lastError: string[] = [];
 
-  // The on-chain REST API only understands gc1... addresses.
-  // Convert any me1... address to gc1... for querying.
-  let gcAddress = address;
+  // The ME Hub REST LCD accepts me1... addresses directly — no conversion needed.
+  // Normalize any gc1... legacy address back to me1... just in case.
+  let queryAddress = address;
   try {
-    gcAddress = meToGcAddress(address);
-  } catch { /* if conversion fails, try original address */ }
+    const { data } = fromBech32(address);
+    queryAddress = toBech32(MEC_PREFIX, data);
+  } catch { /* use address as-is if parsing fails */ }
 
   for (const ep of endpoints) {
     try {
-      // All RPC endpoints only accept gc1... addresses, never me1...
-      const queryAddr = gcAddress;
-      const url = ep.base + ep.path(queryAddr);
+      const url = ep.base + ep.path(queryAddress);
       const res = await axios.get(url, {
         timeout: 8000,
         headers: { Accept: "application/json" },
         validateStatus: (s) => s === 200,
       });
-
-      let result: BalanceResult | null = null;
-      if (ep.type === "cosmos") {
-        result = parseCosmosBalance(res.data, address);
-      } else {
-        result = parseCustomBalance(res.data, address) ?? parseCosmosBalance(res.data, address);
-      }
-
-      if (result) return result;
+      return parseCosmosBalance(res.data, address);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       lastError.push(`${ep.base}: ${msg}`);
@@ -134,9 +117,7 @@ export async function queryBalance(address: string, network: string): Promise<Ba
  */
 export async function deriveAddressFromPrivateKey(privateKey: string): Promise<{ address: string; privkeyHex: string }> {
   let hex = privateKey.trim();
-  // Strip 0x prefix
   if (hex.startsWith("0x") || hex.startsWith("0X")) hex = hex.slice(2);
-  // If it looks like base64 (not all hex chars), decode it
   if (/[^0-9a-fA-F]/.test(hex)) {
     const buf = Buffer.from(hex, "base64");
     hex = buf.toString("hex");
@@ -152,7 +133,7 @@ export async function deriveAddressFromPrivateKey(privateKey: string): Promise<{
 
 /**
  * Derive the MEC bech32 address from a BIP39 mnemonic at a given account index.
- * HD path: m/44'/{coinType}'/0'/0/{index}
+ * HD path: m/44'/118'/0'/0/<index>  (coin type 118, confirmed from official SDK)
  */
 export async function deriveMECAddressAsync(mnemonic: string, index = 0): Promise<DerivedAccount> {
   const hdPath = `m/44'/${MEC_COIN_TYPE}'/0'/0/${index}`;
@@ -166,24 +147,33 @@ export async function deriveMECAddressAsync(mnemonic: string, index = 0): Promis
   return { address, hdIndex: index, hdPath };
 }
 
-// ─── Chain constants ──────────────────────────────────────────────────────────
-// The Meta Earth chain uses "gc" bech32 prefix internally.
-// User-facing addresses use "me" prefix — same bytes, different HRP.
-const MEC_CHAIN_PREFIX = "gc";
-const MEC_RPC = "http://118.175.0.247:26657";
-const MEC_GAS_LIMIT = "5000000";
-const MEC_FEE_UGC = "1000000"; // 1 GC fee (native denom on gc_20-1 is ugc)
+// ─── Send / Transaction Constants ─────────────────────────────────────────────
+const MEC_MAINNET_RPC = "http://118.175.0.247:16657";
+const MEC_TESTNET_RPC = "http://118.175.0.249:26657";
+const MEC_GAS_LIMIT = "500000";
+const MEC_FEE_UMEC = "10000"; // 500000 gas × 0.02 umec/gas = 10000 umec
 
-/** Convert any MEC address (me1... or gc1...) to the on-chain gc1... form. */
-export function meToGcAddress(addr: string): string {
-  const { data } = fromBech32(addr);
-  return toBech32(MEC_CHAIN_PREFIX, data);
+/** Normalize any MEC address to me1... form (accepts me1... or gc1...). */
+export function normalizeMeAddress(addr: string): string {
+  try {
+    const { data } = fromBech32(addr);
+    return toBech32(MEC_PREFIX, data);
+  } catch {
+    return addr;
+  }
 }
 
-/** Convert any MEC address (me1... or gc1...) to the user-facing me1... form. */
+/**
+ * @deprecated use normalizeMeAddress instead.
+ * Kept for backward compatibility with existing routes.
+ */
+export function meToGcAddress(addr: string): string {
+  return normalizeMeAddress(addr);
+}
+
+/** @deprecated */
 export function gcToMeAddress(addr: string): string {
-  const { data } = fromBech32(addr);
-  return toBech32(MEC_PREFIX, data);
+  return normalizeMeAddress(addr);
 }
 
 /** Derive the raw secp256k1 private key hex from a stored decrypted secret. */
@@ -191,7 +181,6 @@ export async function getPrivateKeyHex(secret: string, hdIndex = 0): Promise<str
   if (secret.startsWith(PRIVATE_KEY_PREFIX)) {
     return secret.slice(PRIVATE_KEY_PREFIX.length);
   }
-  // Derive from mnemonic at the given HD index
   const hdPath = `m/44'/${MEC_COIN_TYPE}'/0'/0/${hdIndex}`;
   const mnemonicObj = new EnglishMnemonic(secret.trim());
   const seed = await Bip39.mnemonicToSeed(mnemonicObj);
@@ -200,15 +189,15 @@ export async function getPrivateKeyHex(secret: string, hdIndex = 0): Promise<str
 }
 
 /**
- * Derive the on-chain gc1... address that corresponds to a given private key hex.
- * This lets us verify that our derived key actually matches the stored address.
+ * Derive the me1... address that corresponds to a given private key hex.
+ * Used to verify that our derived key matches the stored address.
  */
 export async function gcAddressFromPrivkeyHex(privkeyHex: string): Promise<string> {
   const privkey = Buffer.from(privkeyHex, "hex");
   const { pubkey } = await Secp256k1.makeKeypair(privkey);
   const compressed = Secp256k1.compressPubkey(pubkey);
   const rawAddr = rawSecp256k1PubkeyToRawAddress(compressed);
-  return toBech32(MEC_CHAIN_PREFIX, rawAddr);
+  return toBech32(MEC_PREFIX, rawAddr);
 }
 
 export interface SendResult {
@@ -217,11 +206,12 @@ export interface SendResult {
 }
 
 /**
- * Sign and broadcast a MsgSend transaction on the Meta Earth (gc_20-1) chain.
+ * Sign and broadcast a MsgSend transaction on the Meta Earth me-chain.
  * @param privkeyHex  32-byte private key as lowercase hex
  * @param fromAddress me1... source address
  * @param toAddress   me1... destination address
- * @param amountMEC   amount in MEC (not umec)
+ * @param amountMEC   amount in MEC (converted to umec internally)
+ * @param network     "mainnet" | "testnet"
  * @param memo        optional memo string
  */
 export async function sendMEC(params: {
@@ -229,27 +219,36 @@ export async function sendMEC(params: {
   fromAddress: string;
   toAddress: string;
   amountMEC: number;
+  network?: string;
   memo?: string;
 }): Promise<SendResult> {
-  const { privkeyHex, fromAddress, toAddress, amountMEC, memo = "" } = params;
+  const { privkeyHex, fromAddress, toAddress, amountMEC, network = "mainnet", memo = "" } = params;
 
   const privkey = Buffer.from(privkeyHex, "hex");
-  const wallet = await DirectSecp256k1Wallet.fromKey(privkey, MEC_CHAIN_PREFIX);
+  const wallet = await DirectSecp256k1Wallet.fromKey(privkey, MEC_PREFIX);
 
-  const fromGc = meToGcAddress(fromAddress);
-  const toGc = meToGcAddress(toAddress);
+  const fromMe = normalizeMeAddress(fromAddress);
+  const toMe = normalizeMeAddress(toAddress);
 
-  const client = await SigningStargateClient.connectWithSigner(MEC_RPC, wallet, {
-    prefix: MEC_CHAIN_PREFIX,
+  const rpcUrl = network === "testnet" ? MEC_TESTNET_RPC : MEC_MAINNET_RPC;
+
+  const client = await SigningStargateClient.connectWithSigner(rpcUrl, wallet, {
+    prefix: MEC_PREFIX,
   });
 
-  const amountUGc = Math.floor(amountMEC * 1_000_000).toString();
+  const amountUMec = Math.floor(amountMEC * 1_000_000).toString();
   const fee = {
-    amount: [{ denom: "ugc", amount: MEC_FEE_UGC }],
+    amount: [{ denom: "umec", amount: MEC_FEE_UMEC }],
     gas: MEC_GAS_LIMIT,
   };
 
-  const result = await client.sendTokens(fromGc, toGc, [{ denom: "ugc", amount: amountUGc }], fee, memo);
+  const result = await client.sendTokens(
+    fromMe,
+    toMe,
+    [{ denom: "umec", amount: amountUMec }],
+    fee,
+    memo,
+  );
 
   if (result.code !== 0) {
     throw new Error(`Tx failed (code ${result.code}): ${result.rawLog ?? "unknown error"}`);
