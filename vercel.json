@@ -5,7 +5,7 @@
   "buildCommand": "pnpm --filter @workspace/dashboard run build && pnpm --filter @workspace/api-server run build && mkdir -p api && cp artifacts/api-server/api/index.js api/index.js",
   "outputDirectory": "artifacts/dashboard/dist/public",
   "rewrites": [
-    { "source": "/api/:path*", "destination": "/api/index" },
+    { "source": "/api/:path*", "destination": "/api" },
     { "source": "/(.*)", "destination": "/index.html" }
   ],
   "headers": [

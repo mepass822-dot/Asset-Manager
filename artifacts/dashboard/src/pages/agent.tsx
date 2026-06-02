@@ -592,7 +592,7 @@ export default function Agent() {
                     <Bot className="h-4 w-4" /> Agent is analyzing and executing...
                   </div>
                 )}
-                {result?.logs.map((log: AgentLog, i) => (
+                {(result?.logs ?? []).map((log: AgentLog, i) => (
                   <div key={i} className="mb-3 flex flex-col gap-1 border-b border-border/20 pb-2">
                     <div className="flex items-center gap-2">
                       <span className="text-muted-foreground">[{new Date(log.createdAt).toLocaleTimeString()}]</span>
