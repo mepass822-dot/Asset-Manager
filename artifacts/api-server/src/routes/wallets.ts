@@ -172,8 +172,8 @@ router.post("/wallets/:id/send", async (req, res): Promise<void> => {
     res.status(400).json({ error: "toAddress, amountMEC, and masterPassword are required" });
     return;
   }
-  if (!toAddress.startsWith("me1")) {
-    res.status(400).json({ error: "toAddress must be a valid me1... address" });
+  if (!toAddress.startsWith("me1") && !toAddress.startsWith("gc1")) {
+    res.status(400).json({ error: "toAddress must be a valid me1... or gc1... address" });
     return;
   }
   if (amountMEC <= 0) {

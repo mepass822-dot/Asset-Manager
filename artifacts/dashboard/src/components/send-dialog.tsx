@@ -1,9 +1,10 @@
 import { useState } from "react";
-import { Send } from "lucide-react";
+import { Send, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 
 interface Wallet {
@@ -13,8 +14,15 @@ interface Wallet {
   network: string;
 }
 
-export function SendDialog({ wallet }: { wallet: Wallet }) {
+interface SendDialogProps {
+  wallet: Wallet;
+  allWallets?: Wallet[];
+}
+
+export function SendDialog({ wallet, allWallets = [] }: SendDialogProps) {
   const [open, setOpen] = useState(false);
+  const [toMode, setToMode] = useState<"wallet" | "address">("wallet");
+  const [selectedWalletId, setSelectedWalletId] = useState<string>("");
   const [toAddress, setToAddress] = useState("");
   const [amount, setAmount] = useState("");
   const [password, setPassword] = useState("");
@@ -23,27 +31,47 @@ export function SendDialog({ wallet }: { wallet: Wallet }) {
   const [txHash, setTxHash] = useState<string | null>(null);
   const { toast } = useToast();
 
+  const otherWallets = allWallets.filter((w) => w.id !== wallet.id);
+
   const reset = () => {
     setToAddress(""); setAmount(""); setPassword(""); setMemo("");
-    setTxHash(null); setLoading(false);
+    setTxHash(null); setLoading(false); setSelectedWalletId("");
+    setToMode(otherWallets.length > 0 ? "wallet" : "address");
   };
 
+  const resolvedToAddress = (() => {
+    if (toMode === "wallet" && selectedWalletId) {
+      return allWallets.find((w) => w.id === Number(selectedWalletId))?.address ?? "";
+    }
+    return toAddress;
+  })();
+
+  const canSend = !loading && !!resolvedToAddress && !!amount && !!password;
+
   const handleSend = async () => {
-    if (!toAddress || !amount || !password) return;
+    if (!canSend) return;
     setLoading(true);
     try {
       const resp = await fetch(`/api/wallets/${wallet.id}/send`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          toAddress,
+          toAddress: resolvedToAddress,
           amountMEC: parseFloat(amount),
           masterPassword: password,
           memo,
         }),
       });
       const data = await resp.json();
-      if (!resp.ok) throw new Error(data.error || "Transaction failed");
+      if (!resp.ok) {
+        const msg: string = data.error || "Transaction failed";
+        if (msg.includes("does not exist on chain")) {
+          throw new Error(
+            "The sender wallet has no on-chain balance yet. Fund this address with MEC before sending."
+          );
+        }
+        throw new Error(msg);
+      }
       setTxHash(data.txHash);
       toast({
         title: "Transaction Sent!",
@@ -62,7 +90,7 @@ export function SendDialog({ wallet }: { wallet: Wallet }) {
           <Send className="h-4 w-4" />
         </Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-[420px]">
+      <DialogContent className="sm:max-w-[440px]">
         <DialogHeader>
           <DialogTitle>Send MEC</DialogTitle>
           <DialogDescription>
@@ -84,15 +112,61 @@ export function SendDialog({ wallet }: { wallet: Wallet }) {
           </div>
         ) : (
           <div className="grid gap-4 py-2">
+            {/* Recipient */}
             <div className="grid gap-2">
-              <Label>To Address</Label>
-              <Input
-                className="font-mono text-xs"
-                value={toAddress}
-                onChange={(e) => setToAddress(e.target.value)}
-                placeholder="me1..."
-              />
+              <Label>Recipient</Label>
+
+              {/* Mode toggle */}
+              {otherWallets.length > 0 && (
+                <div className="flex rounded-lg border border-border/60 overflow-hidden text-xs mb-1">
+                  <button
+                    onClick={() => setToMode("wallet")}
+                    className={`flex-1 py-1.5 transition-colors ${toMode === "wallet" ? "bg-primary text-primary-foreground" : "hover:bg-muted text-muted-foreground"}`}
+                  >
+                    My Wallets
+                  </button>
+                  <button
+                    onClick={() => setToMode("address")}
+                    className={`flex-1 py-1.5 transition-colors border-l border-border/60 ${toMode === "address" ? "bg-primary text-primary-foreground" : "hover:bg-muted text-muted-foreground"}`}
+                  >
+                    External Address
+                  </button>
+                </div>
+              )}
+
+              {toMode === "wallet" && otherWallets.length > 0 ? (
+                <Select value={selectedWalletId} onValueChange={setSelectedWalletId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select destination wallet…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {otherWallets.map((w) => (
+                      <SelectItem key={w.id} value={String(w.id)}>
+                        <span className="font-medium">{w.label}</span>
+                        <span className="text-muted-foreground ml-2 font-mono text-xs">
+                          {w.address.slice(0, 10)}…{w.address.slice(-6)}
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <Input
+                  className="font-mono text-xs"
+                  value={toAddress}
+                  onChange={(e) => setToAddress(e.target.value)}
+                  placeholder="me1... or gc1..."
+                />
+              )}
+
+              {resolvedToAddress && (
+                <p className="text-xs text-muted-foreground font-mono break-all">
+                  → {resolvedToAddress}
+                </p>
+              )}
             </div>
+
+            {/* Amount */}
             <div className="grid gap-2">
               <Label>Amount (MEC)</Label>
               <Input
@@ -105,6 +179,8 @@ export function SendDialog({ wallet }: { wallet: Wallet }) {
               />
               <p className="text-xs text-muted-foreground">Fee: 0.02 MEC · Gas: 500,000</p>
             </div>
+
+            {/* Password */}
             <div className="grid gap-2">
               <Label>Encryption Password</Label>
               <Input
@@ -114,14 +190,17 @@ export function SendDialog({ wallet }: { wallet: Wallet }) {
                 placeholder="Password used when importing this wallet"
               />
             </div>
+
+            {/* Memo */}
             <div className="grid gap-2">
               <Label>Memo <span className="text-muted-foreground text-xs">(optional)</span></Label>
               <Input value={memo} onChange={(e) => setMemo(e.target.value)} placeholder="e.g. withdrawal" />
             </div>
+
             <DialogFooter>
               <Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
               <Button
-                disabled={loading || !toAddress || !amount || !password}
+                disabled={!canSend}
                 onClick={handleSend}
                 className="gap-2"
               >

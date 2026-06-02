@@ -595,7 +595,7 @@ export default function Wallets() {
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex items-center justify-end gap-0.5">
-                      <SendDialog wallet={wallet} />
+                      <SendDialog wallet={wallet} allWallets={wallets ?? []} />
                       <Button variant="ghost" size="icon" onClick={() => handleDelete(wallet.id)} className="text-destructive hover:bg-destructive/10 hover:text-destructive">
                         <Trash2 className="h-4 w-4" />
                       </Button>

@@ -153,10 +153,16 @@ const MEC_RPC = "http://118.175.0.247:26657";
 const MEC_GAS_LIMIT = "500000";
 const MEC_FEE_UMEC = "20000"; // 0.02 MEC
 
-/** Convert a me1... address to gc1... (same 20-byte payload, different prefix). */
+/** Convert any MEC address (me1... or gc1...) to the on-chain gc1... form. */
 export function meToGcAddress(addr: string): string {
   const { data } = fromBech32(addr);
   return toBech32(MEC_CHAIN_PREFIX, data);
+}
+
+/** Convert any MEC address (me1... or gc1...) to the user-facing me1... form. */
+export function gcToMeAddress(addr: string): string {
+  const { data } = fromBech32(addr);
+  return toBech32(MEC_PREFIX, data);
 }
 
 /** Derive the raw secp256k1 private key hex from a stored decrypted secret. */
