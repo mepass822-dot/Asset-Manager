@@ -2,13 +2,10 @@ import express, { type Express } from "express";
 import cors from "cors";
 import { pinoHttp } from "pino-http";
 import path from "path";
-import { fileURLToPath } from "url";
 import router from "./routes";
 import { logger } from "./lib/logger";
 import { requireAuth } from "./middlewares/firebase-auth";
 import { db, sweepConfigTable } from "@workspace/db";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // Seed the sweep config row (with master address default) on startup
 (async () => {
