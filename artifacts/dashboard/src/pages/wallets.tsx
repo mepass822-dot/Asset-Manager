@@ -294,17 +294,24 @@ function BulkImportDialog({ onImported }: { onImported: () => void }) {
 
   const lineCount = text.trim().split("\n").filter(l => l.trim()).length;
 
+  const normalizeResult = (data: any) => ({
+    imported: (data.verified ?? 0) + (data.unverified ?? 0),
+    skipped: data.skipped ?? 0,
+    unverified: data.unverified ?? 0,
+    errors: (data.skippedDetails ?? []).map((e: any) => `${e.key ?? e.phrase ?? ""}: ${e.reason}`),
+  });
+
   const handleImport = async () => {
     if (!password || !text.trim()) return;
     setLoading(true);
     try {
       if (tab === "mnemonic") {
-        const phrases = text.trim().split("\n").map(l => l.trim()).filter(Boolean);
+        const phrases = text.trim().split("\n").map((l: string) => l.trim()).filter(Boolean);
         bulkImport.mutate(
           { data: { mnemonics: phrases.join("\n"), password, network } },
           {
             onSuccess: (data: any) => {
-              setResult(data);
+              setResult(normalizeResult(data));
               onImported();
             },
             onError: (err: any) => {
@@ -313,14 +320,15 @@ function BulkImportDialog({ onImported }: { onImported: () => void }) {
           }
         );
       } else {
+        const keysText = text.trim().split("\n").map((l: string) => l.trim()).filter(Boolean).join("\n");
         const resp = await authFetch("/api/wallets/bulk-import-keys", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ privateKeys: text.trim().split("\n").map(l => l.trim()).filter(Boolean), password, network }),
+          body: JSON.stringify({ keys: keysText, password, network }),
         });
         const data = await resp.json();
         if (!resp.ok) throw new Error(data.error || "Failed");
-        setResult(data);
+        setResult(normalizeResult(data));
         onImported();
       }
     } catch (err) {
