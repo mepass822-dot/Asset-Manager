@@ -3,7 +3,7 @@ import { eq, desc, count, and, sql } from "drizzle-orm";
 import { db, walletsTable, agentLogsTable, rulesTable, whitelistTable, sweepConfigTable } from "@workspace/db";
 import { RunAgentBody, AgentChatBody, ListAgentLogsQueryParams } from "@workspace/api-zod";
 import { decryptMnemonic } from "../lib/crypto";
-import { queryBalance, queryStakingRewards, sendMEC, getPrivateKeyHex } from "../lib/blockchain";
+import { queryBalance, queryStakingRewards, sendMEC, getPrivateKeyHex, claimAllStakingRewards, sweepToMaster } from "../lib/blockchain";
 import { agentDecide, chatWithNvidia } from "../lib/nvidia";
 import { logger } from "../lib/logger";
 import { getSchedulerStatus, startScheduler, stopScheduler } from "../lib/scheduler";
@@ -443,6 +443,178 @@ router.get("/agent/stats", async (_req, res): Promise<void> => {
     activeRules: Number(ruleCount?.count ?? 0),
     lastRunAt: lastLog?.createdAt?.toISOString() ?? null,
   });
+});
+
+// ─── Sweep Now ────────────────────────────────────────────────────────────────
+// Deterministic sweep pipeline: no AI required. Checks balances, claims staking
+// rewards (if enabled), and sweeps to master address for all selected wallets.
+router.post("/agent/sweep-now", async (req, res): Promise<void> => {
+  const { walletIds, masterPassword, dryRun = false } = req.body as {
+    walletIds?: number[];
+    masterPassword: string;
+    dryRun?: boolean;
+  };
+
+  if (!masterPassword) {
+    res.status(400).json({ error: "masterPassword is required" });
+    return;
+  }
+
+  const sweepCfg = await getOrCreateSweepConfig();
+  const minSweepMEC = parseFloat(sweepCfg.minSweepAmountMec ?? "0.001");
+  const now = new Date();
+  const dayOfMonth = now.getUTCDate();
+  const inDividendWindow = dayOfMonth >= 1 && dayOfMonth <= sweepCfg.dividendWindowDays;
+
+  // Resolve wallets: use provided IDs, or fall back to all verified wallets
+  let wallets;
+  if (walletIds && walletIds.length > 0) {
+    wallets = await db
+      .select()
+      .from(walletsTable)
+      .where(sql`${walletsTable.id} = ANY(${walletIds})`);
+  } else {
+    wallets = await db.select().from(walletsTable).where(eq(walletsTable.verified, true));
+  }
+
+  const verifiedWallets = wallets.filter((w) => w.verified);
+
+  if (verifiedWallets.length === 0) {
+    res.status(400).json({ error: "No verified wallets found to sweep." });
+    return;
+  }
+
+  const logs: ReturnType<typeof mapLog>[] = [];
+  let swept = 0;
+  let skipped = 0;
+
+  for (const wallet of verifiedWallets) {
+    // ── Dry Run ──────────────────────────────────────────────────────────────
+    if (dryRun) {
+      const bal = await queryBalance(wallet.address, wallet.network).catch(() => ({ balance: "0", denom: "MEC" }));
+      const balanceMEC = parseFloat(bal.balance);
+      if (balanceMEC >= minSweepMEC) {
+        const [log] = await db.insert(agentLogsTable).values({
+          walletId: wallet.id,
+          action: inDividendWindow ? "sweep_dividend" : "sweep_balance",
+          status: "dry_run",
+          amount: bal.balance,
+          message: `[DRY RUN] Would sweep ${bal.balance} MEC → ${sweepCfg.masterAddress}${inDividendWindow ? ` (dividend window day ${dayOfMonth})` : ""}`,
+        }).returning();
+        logs.push(mapLog(log));
+        swept++;
+      } else {
+        skipped++;
+      }
+      continue;
+    }
+
+    // ── Live Sweep ────────────────────────────────────────────────────────────
+    let secret: string;
+    try {
+      secret = decryptMnemonic(wallet.encryptedMnemonic, masterPassword);
+    } catch {
+      const [log] = await db.insert(agentLogsTable).values({
+        walletId: wallet.id,
+        action: "sweep_balance",
+        status: "error",
+        message: `Failed to decrypt wallet — incorrect password`,
+      }).returning();
+      logs.push(mapLog(log));
+      skipped++;
+      continue;
+    }
+
+    let privkeyHex: string;
+    try {
+      privkeyHex = await getPrivateKeyHex(secret, wallet.hdIndex ?? 0);
+    } catch (err) {
+      const [log] = await db.insert(agentLogsTable).values({
+        walletId: wallet.id,
+        action: "sweep_balance",
+        status: "error",
+        message: `Key derivation failed: ${err instanceof Error ? err.message : String(err)}`,
+      }).returning();
+      logs.push(mapLog(log));
+      skipped++;
+      continue;
+    }
+
+    // Phase 1a: Claim staking rewards if enabled
+    if (sweepCfg.autoClaimStaking) {
+      try {
+        const stakingRewards = await queryStakingRewards(wallet.address, wallet.network);
+        const totalRewardMEC = parseFloat(stakingRewards.totalMEC);
+        if (totalRewardMEC >= minSweepMEC) {
+          const claimResult = await claimAllStakingRewards({ privkeyHex, delegatorAddress: wallet.address, network: wallet.network });
+          const [log] = await db.insert(agentLogsTable).values({
+            walletId: wallet.id,
+            action: "claim_staking_rewards",
+            status: "success",
+            amount: stakingRewards.totalMEC,
+            txHash: claimResult.txHash,
+            message: `Claimed ${stakingRewards.totalMEC} MEC staking rewards | TX: ${claimResult.txHash}`,
+          }).returning();
+          logs.push(mapLog(log));
+          // Wait for chain state to settle
+          await new Promise((r) => setTimeout(r, 6000));
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (!msg.includes("No withdrawable")) {
+          const [log] = await db.insert(agentLogsTable).values({
+            walletId: wallet.id,
+            action: "claim_staking_rewards",
+            status: "error",
+            message: `Staking claim skipped: ${msg}`,
+          }).returning();
+          logs.push(mapLog(log));
+        }
+      }
+    }
+
+    // Phase 1b: Sweep balance to master
+    try {
+      const bal = await queryBalance(wallet.address, wallet.network);
+      const balanceMEC = parseFloat(bal.balance);
+      if (balanceMEC < minSweepMEC) {
+        skipped++;
+        continue;
+      }
+      const sweepResult = await sweepToMaster({
+        privkeyHex,
+        fromAddress: wallet.address,
+        masterAddress: sweepCfg.masterAddress,
+        network: wallet.network,
+        memo: inDividendWindow ? `dividend-sweep day-${dayOfMonth}` : "manual-sweep",
+      });
+      const [log] = await db.insert(agentLogsTable).values({
+        walletId: wallet.id,
+        action: inDividendWindow ? "sweep_dividend" : "sweep_balance",
+        status: "success",
+        amount: sweepResult.amountMEC.toFixed(8),
+        txHash: sweepResult.txHash,
+        message: `Swept ${sweepResult.amountMEC.toFixed(8)} MEC → ${sweepCfg.masterAddress} | TX: ${sweepResult.txHash}`,
+      }).returning();
+      logs.push(mapLog(log));
+      swept++;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (!msg.includes("Insufficient balance")) {
+        const [log] = await db.insert(agentLogsTable).values({
+          walletId: wallet.id,
+          action: "sweep_balance",
+          status: "error",
+          message: `Sweep failed: ${msg}`,
+        }).returning();
+        logs.push(mapLog(log));
+      }
+      skipped++;
+    }
+  }
+
+  req.log.info({ swept, skipped, dryRun }, "Sweep-now complete");
+  res.json({ swept, skipped, dryRun, masterAddress: sweepCfg.masterAddress, logs });
 });
 
 function mapLog(log: typeof agentLogsTable.$inferSelect & { walletLabel?: string | null }) {

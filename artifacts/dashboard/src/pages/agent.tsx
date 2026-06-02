@@ -15,7 +15,7 @@ import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Play, Bot, Terminal, Clock, StopCircle, Timer, Shuffle, ShieldCheck, Coins, RefreshCw, Save, Eye, CheckSquare } from "lucide-react";
+import { Play, Bot, Terminal, Clock, StopCircle, Timer, Shuffle, ShieldCheck, Coins, RefreshCw, Save, Eye, CheckSquare, Zap, ArrowRight } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import type { AgentRunResult, AgentLog, SweepConfig } from "@workspace/api-client-react";
@@ -64,6 +64,26 @@ export default function Agent() {
   const [sweepDividendWindowDays, setSweepDividendWindowDays] = useState(7);
   const [sweepMinAmount, setSweepMinAmount] = useState("1");
   const [sweepEditing, setSweepEditing] = useState(false);
+
+  // Sweep Now state
+  const [sweepNowPassword, setSweepNowPassword] = useState("");
+  const [sweepNowDryRun, setSweepNowDryRun] = useState(false);
+  const [sweepNowResult, setSweepNowResult] = useState<{ swept: number; skipped: number; dryRun: boolean; masterAddress: string; logs: AgentLog[] } | null>(null);
+
+  const sweepNow = useMutation({
+    mutationFn: (body: object) =>
+      authFetch("/api/agent/sweep-now", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then(async (r) => {
+        if (!r.ok) { const d = await r.json(); throw new Error(d.error || "Sweep failed"); }
+        return r.json();
+      }),
+    onSuccess: (data: { swept: number; skipped: number; dryRun: boolean; masterAddress: string; logs: AgentLog[] }) => {
+      setSweepNowResult(data);
+      queryClient.invalidateQueries({ queryKey: getListAgentLogsQueryKey() });
+      queryClient.invalidateQueries({ queryKey: getGetAgentStatsQueryKey() });
+      toast({ title: data.dryRun ? "Dry Run Complete" : "Sweep Complete", description: `${data.swept} wallet(s) swept, ${data.skipped} skipped.` });
+    },
+    onError: (err: any) => toast({ title: "Sweep failed", description: err?.message ?? "Unknown error", variant: "destructive" }),
+  });
 
   const saveSweepConfig = useMutation({
     mutationFn: (body: object) =>
@@ -293,6 +313,99 @@ export default function Agent() {
           ) : (
             <div className="text-sm text-muted-foreground flex items-center gap-2">
               <RefreshCw className="h-4 w-4 animate-spin" /> Loading sweep config…
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Sweep Now Card */}
+      <Card className="border-2 border-primary/40 bg-primary/5">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-lg flex items-center gap-2">
+            <Zap className="h-5 w-5 text-primary" />
+            Sweep Now
+            <span className="text-xs font-normal text-muted-foreground ml-1">— instantly sweep all verified wallets to master address</span>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {sweepNowResult ? (
+            <div className="space-y-4">
+              <div className="grid grid-cols-3 gap-3">
+                <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-3 text-center">
+                  <div className="text-2xl font-bold text-emerald-400">{sweepNowResult.swept}</div>
+                  <div className="text-xs text-muted-foreground mt-1">{sweepNowResult.dryRun ? "Would Sweep" : "Swept"}</div>
+                </div>
+                <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3 text-center">
+                  <div className="text-2xl font-bold text-yellow-400">{sweepNowResult.skipped}</div>
+                  <div className="text-xs text-muted-foreground mt-1">Skipped</div>
+                </div>
+                <div className="bg-background/60 border border-border/40 rounded-lg p-3 text-center">
+                  <div className="text-xs font-mono font-semibold text-primary truncate">{sweepNowResult.masterAddress.slice(0, 10)}…</div>
+                  <div className="text-xs text-muted-foreground mt-1">Master Address</div>
+                </div>
+              </div>
+              {sweepNowResult.logs.length > 0 && (
+                <ScrollArea className="h-[180px] border border-border/40 rounded-md p-3 bg-black/30 font-mono text-xs">
+                  {sweepNowResult.logs.map((log: AgentLog, i: number) => (
+                    <div key={i} className="mb-2 pb-2 border-b border-border/20 last:border-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Badge variant={log.status === "success" ? "default" : log.status === "error" ? "destructive" : "secondary"} className="text-[10px] h-4 py-0">{log.status}</Badge>
+                        <span className="text-primary/80 font-semibold">{log.action}</span>
+                        {log.txHash && <span className="text-muted-foreground">TX: {log.txHash.slice(0, 12)}…</span>}
+                      </div>
+                      <div className="text-foreground/70 mt-1">{log.message}</div>
+                    </div>
+                  ))}
+                </ScrollArea>
+              )}
+              <Button variant="outline" size="sm" onClick={() => setSweepNowResult(null)} className="w-full">Run Again</Button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-3">
+                <div className="text-sm text-muted-foreground space-y-1">
+                  <p>This will immediately:</p>
+                  <ul className="ml-4 space-y-0.5 list-disc text-foreground/70">
+                    <li>Check every verified wallet's balance</li>
+                    {sweepConfig?.autoClaimStaking && <li>Claim any pending staking rewards</li>}
+                    <li>Sweep balances above <span className="text-primary font-mono">{sweepConfig?.minSweepAmountMec ?? "0.001"} MEC</span> → master address</li>
+                  </ul>
+                </div>
+                <div className="bg-background/60 rounded-lg border border-border/40 p-2 font-mono text-xs text-muted-foreground flex items-center gap-2">
+                  <ArrowRight className="h-3 w-3 text-primary shrink-0" />
+                  <span className="truncate" title={sweepConfig?.masterAddress}>{sweepConfig?.masterAddress ?? "Loading…"}</span>
+                </div>
+              </div>
+              <div className="space-y-3">
+                <div className="space-y-2">
+                  <Label>Master Password</Label>
+                  <Input
+                    type="password"
+                    value={sweepNowPassword}
+                    onChange={e => setSweepNowPassword(e.target.value)}
+                    placeholder="Unlock wallets for sweep..."
+                  />
+                  <p className="text-xs text-muted-foreground">Used to decrypt wallet keys — never stored.</p>
+                </div>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Label>Dry Run</Label>
+                    <p className="text-xs text-muted-foreground">Preview without broadcasting TXs</p>
+                  </div>
+                  <Switch checked={sweepNowDryRun} onCheckedChange={setSweepNowDryRun} />
+                </div>
+                <Button
+                  className={`w-full gap-2 font-bold ${!sweepNowDryRun ? "bg-primary hover:bg-primary/90" : ""}`}
+                  variant={sweepNowDryRun ? "secondary" : "default"}
+                  disabled={sweepNow.isPending || !sweepNowPassword}
+                  onClick={() => sweepNow.mutate({ masterPassword: sweepNowPassword, dryRun: sweepNowDryRun })}
+                >
+                  {sweepNow.isPending
+                    ? <><RefreshCw className="h-4 w-4 animate-spin" /> Sweeping...</>
+                    : <><Zap className="h-4 w-4" /> {sweepNowDryRun ? "Preview Sweep" : "Execute Sweep Now"}</>
+                  }
+                </Button>
+              </div>
             </div>
           )}
         </CardContent>
