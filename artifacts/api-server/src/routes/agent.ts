@@ -445,6 +445,30 @@ router.get("/agent/stats", async (_req, res): Promise<void> => {
   });
 });
 
+// ─── Verify Encryption Password ───────────────────────────────────────────────
+// Pre-flight check: tries to decrypt one verified wallet with the given password.
+// Returns { valid: true, walletCount } on success so the UI can gate the sweep button.
+router.post("/agent/verify-password", async (req, res): Promise<void> => {
+  const { password } = req.body as { password: string };
+  if (!password) {
+    res.status(400).json({ error: "password is required" });
+    return;
+  }
+  const wallets = await db.select().from(walletsTable).where(eq(walletsTable.verified, true)).limit(1);
+  if (wallets.length === 0) {
+    res.status(400).json({ error: "No verified wallets found" });
+    return;
+  }
+  try {
+    decryptMnemonic(wallets[0].encryptedMnemonic, password);
+  } catch {
+    res.status(400).json({ valid: false, error: "Incorrect password — this is the Encryption Password you set when importing your wallets." });
+    return;
+  }
+  const [{ count }] = await db.select({ count: sql<number>`count(*)::int` }).from(walletsTable).where(eq(walletsTable.verified, true));
+  res.json({ valid: true, walletCount: count });
+});
+
 // ─── Sweep Now ────────────────────────────────────────────────────────────────
 // Deterministic sweep pipeline: no AI required. Checks balances, claims staking
 // rewards (if enabled), and sweeps to master address for all selected wallets.

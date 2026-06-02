@@ -15,7 +15,7 @@ import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Play, Bot, Terminal, Clock, StopCircle, Timer, Shuffle, ShieldCheck, Coins, RefreshCw, Save, Eye, CheckSquare, Zap, ArrowRight } from "lucide-react";
+import { Play, Bot, Terminal, Clock, StopCircle, Timer, Shuffle, ShieldCheck, Coins, RefreshCw, Save, Eye, CheckSquare, Zap, ArrowRight, Lock, Unlock, AlertCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import type { AgentRunResult, AgentLog, SweepConfig } from "@workspace/api-client-react";
@@ -69,6 +69,19 @@ export default function Agent() {
   const [sweepNowPassword, setSweepNowPassword] = useState("");
   const [sweepNowDryRun, setSweepNowDryRun] = useState(false);
   const [sweepNowResult, setSweepNowResult] = useState<{ swept: number; skipped: number; dryRun: boolean; masterAddress: string; logs: AgentLog[] } | null>(null);
+  const [passwordVerified, setPasswordVerified] = useState(false);
+  const [passwordError, setPasswordError] = useState("");
+
+  const verifyPassword = useMutation({
+    mutationFn: (password: string) =>
+      authFetch("/api/agent/verify-password", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password }) }).then(async (r) => {
+        const d = await r.json();
+        if (!r.ok || !d.valid) throw new Error(d.error || "Incorrect password");
+        return d as { valid: boolean; walletCount: number };
+      }),
+    onSuccess: () => { setPasswordVerified(true); setPasswordError(""); },
+    onError: (err: Error) => { setPasswordVerified(false); setPasswordError(err.message); },
+  });
 
   const sweepNow = useMutation({
     mutationFn: (body: object) =>
@@ -378,14 +391,45 @@ export default function Agent() {
               </div>
               <div className="space-y-3">
                 <div className="space-y-2">
-                  <Label>Master Password</Label>
-                  <Input
-                    type="password"
-                    value={sweepNowPassword}
-                    onChange={e => setSweepNowPassword(e.target.value)}
-                    placeholder="Unlock wallets for sweep..."
-                  />
-                  <p className="text-xs text-muted-foreground">Used to decrypt wallet keys — never stored.</p>
+                  <Label className="flex items-center gap-1.5">
+                    {passwordVerified
+                      ? <Unlock className="h-3.5 w-3.5 text-emerald-400" />
+                      : <Lock className="h-3.5 w-3.5 text-muted-foreground" />}
+                    Wallet Encryption Password
+                  </Label>
+                  <div className="flex gap-2">
+                    <Input
+                      type="password"
+                      value={sweepNowPassword}
+                      onChange={e => { setSweepNowPassword(e.target.value); setPasswordVerified(false); setPasswordError(""); }}
+                      onKeyDown={e => { if (e.key === "Enter" && sweepNowPassword && !passwordVerified) verifyPassword.mutate(sweepNowPassword); }}
+                      placeholder="Password you set when importing wallets"
+                      className={passwordVerified ? "border-emerald-500/60 focus-visible:ring-emerald-500/40" : passwordError ? "border-destructive/60 focus-visible:ring-destructive/40" : ""}
+                    />
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="shrink-0 px-3"
+                      disabled={!sweepNowPassword || verifyPassword.isPending || passwordVerified}
+                      onClick={() => verifyPassword.mutate(sweepNowPassword)}
+                    >
+                      {verifyPassword.isPending
+                        ? <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                        : passwordVerified
+                          ? <Unlock className="h-3.5 w-3.5 text-emerald-400" />
+                          : "Verify"
+                      }
+                    </Button>
+                  </div>
+                  {passwordVerified && (
+                    <p className="text-xs text-emerald-400 flex items-center gap-1"><Unlock className="h-3 w-3" /> Password verified — wallets unlocked for sweep</p>
+                  )}
+                  {passwordError && (
+                    <p className="text-xs text-destructive flex items-center gap-1.5"><AlertCircle className="h-3 w-3 shrink-0" />{passwordError}</p>
+                  )}
+                  {!passwordVerified && !passwordError && (
+                    <p className="text-xs text-muted-foreground">This is the <span className="text-foreground/70 font-medium">Encryption Password</span> you entered when importing your wallets. Click Verify to confirm it's correct before sweeping.</p>
+                  )}
                 </div>
                 <div className="flex items-center justify-between">
                   <div>
@@ -397,12 +441,15 @@ export default function Agent() {
                 <Button
                   className={`w-full gap-2 font-bold ${!sweepNowDryRun ? "bg-primary hover:bg-primary/90" : ""}`}
                   variant={sweepNowDryRun ? "secondary" : "default"}
-                  disabled={sweepNow.isPending || !sweepNowPassword}
+                  disabled={sweepNow.isPending || !passwordVerified}
                   onClick={() => sweepNow.mutate({ masterPassword: sweepNowPassword, dryRun: sweepNowDryRun })}
+                  title={!passwordVerified ? "Verify your password first" : ""}
                 >
                   {sweepNow.isPending
                     ? <><RefreshCw className="h-4 w-4 animate-spin" /> Sweeping...</>
-                    : <><Zap className="h-4 w-4" /> {sweepNowDryRun ? "Preview Sweep" : "Execute Sweep Now"}</>
+                    : !passwordVerified
+                      ? <><Lock className="h-4 w-4" /> Verify Password First</>
+                      : <><Zap className="h-4 w-4" /> {sweepNowDryRun ? "Preview Sweep" : "Execute Sweep Now"}</>
                   }
                 </Button>
               </div>
