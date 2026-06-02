@@ -177,7 +177,7 @@ export function SendDialog({ wallet, allWallets = [] }: SendDialogProps) {
                 onChange={(e) => setAmount(e.target.value)}
                 placeholder="0.0001"
               />
-              <p className="text-xs text-muted-foreground">Fee: 0.02 MEC · Gas: 500,000</p>
+              <p className="text-xs text-muted-foreground">Fee: 1 GC · Gas: 5,000,000</p>
             </div>
 
             {/* Password */}

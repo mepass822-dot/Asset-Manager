@@ -15,13 +15,14 @@ const MEC_COIN_TYPE = 118;
 export const PRIVATE_KEY_PREFIX = "pk:";
 
 // Ordered list of endpoints to try for each network.
-// The Meta Earth extension uses /me/balances/{address} against their scan API,
-// with a fallback to the standard Cosmos REST bank endpoint.
+// The chain native denom is "ugc" (micro-GC), displayed as MEC to users.
+// Direct RPC REST (118.175.0.247:1317) is the most reliable source.
 const MAINNET_ENDPOINTS = [
-  { base: "https://nexus.me-network.me",         path: (a: string) => `/api/me/balances/${a}`,                    type: "custom" as const },
-  { base: "https://gateway.me-network.me",        path: (a: string) => `/api/me/balances/${a}`,                    type: "custom" as const },
+  { base: "http://118.175.0.247:1317",            path: (a: string) => `/cosmos/bank/v1beta1/balances/${a}`,       type: "cosmos" as const },
   { base: "https://me-explorer.me-network.me",    path: (a: string) => `/cosmos/bank/v1beta1/balances/${a}`,       type: "cosmos" as const },
   { base: "https://gateway.me-network.me",        path: (a: string) => `/api/cosmos/bank/v1beta1/balances/${a}`,   type: "cosmos" as const },
+  { base: "https://nexus.me-network.me",          path: (a: string) => `/api/me/balances/${a}`,                    type: "custom" as const },
+  { base: "https://gateway.me-network.me",        path: (a: string) => `/api/me/balances/${a}`,                    type: "custom" as const },
 ];
 
 const TESTNET_ENDPOINTS = [
@@ -45,7 +46,10 @@ export interface DerivedAccount {
 function parseCosmosBalance(data: unknown, address: string): BalanceResult | null {
   const balances: Array<{ denom: string; amount: string }> =
     (data as { balances?: Array<{ denom: string; amount: string }> })?.balances ?? [];
-  const mec = balances.find((b) => b.denom === "umec") ?? balances[0];
+  // Chain native denom is "ugc"; also accept "umec" as fallback
+  const mec = balances.find((b) => b.denom === "ugc")
+    ?? balances.find((b) => b.denom === "umec")
+    ?? balances[0];
   if (mec) {
     const amount = (parseFloat(mec.amount) / 1_000_000).toFixed(6);
     return { address, balance: amount, denom: "MEC" };
@@ -81,9 +85,18 @@ export async function queryBalance(address: string, network: string): Promise<Ba
   const endpoints = network === "testnet" ? TESTNET_ENDPOINTS : MAINNET_ENDPOINTS;
   const lastError: string[] = [];
 
+  // The on-chain REST API only understands gc1... addresses.
+  // Convert any me1... address to gc1... for querying.
+  let gcAddress = address;
+  try {
+    gcAddress = meToGcAddress(address);
+  } catch { /* if conversion fails, try original address */ }
+
   for (const ep of endpoints) {
     try {
-      const url = ep.base + ep.path(address);
+      // Use gc1 address for the direct RPC REST endpoint; original for custom APIs
+      const queryAddr = ep.base.includes("118.175.0.247") ? gcAddress : address;
+      const url = ep.base + ep.path(queryAddr);
       const res = await axios.get(url, {
         timeout: 8000,
         headers: { Accept: "application/json" },
@@ -150,8 +163,8 @@ export async function deriveMECAddressAsync(mnemonic: string, index = 0): Promis
 // User-facing addresses use "me" prefix — same bytes, different HRP.
 const MEC_CHAIN_PREFIX = "gc";
 const MEC_RPC = "http://118.175.0.247:26657";
-const MEC_GAS_LIMIT = "500000";
-const MEC_FEE_UMEC = "20000"; // 0.02 MEC
+const MEC_GAS_LIMIT = "5000000";
+const MEC_FEE_UGC = "1000000"; // 1 GC fee (native denom on gc_20-1 is ugc)
 
 /** Convert any MEC address (me1... or gc1...) to the on-chain gc1... form. */
 export function meToGcAddress(addr: string): string {
@@ -210,13 +223,13 @@ export async function sendMEC(params: {
     prefix: MEC_CHAIN_PREFIX,
   });
 
-  const amountUMec = Math.floor(amountMEC * 1_000_000).toString();
+  const amountUGc = Math.floor(amountMEC * 1_000_000).toString();
   const fee = {
-    amount: [{ denom: "umec", amount: MEC_FEE_UMEC }],
+    amount: [{ denom: "ugc", amount: MEC_FEE_UGC }],
     gas: MEC_GAS_LIMIT,
   };
 
-  const result = await client.sendTokens(fromGc, toGc, [{ denom: "umec", amount: amountUMec }], fee, memo);
+  const result = await client.sendTokens(fromGc, toGc, [{ denom: "ugc", amount: amountUGc }], fee, memo);
 
   if (result.code !== 0) {
     throw new Error(`Tx failed (code ${result.code}): ${result.rawLog ?? "unknown error"}`);
