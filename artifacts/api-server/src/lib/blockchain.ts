@@ -3,19 +3,29 @@ import { Secp256k1, Bip39, EnglishMnemonic, Slip10, Slip10Curve, stringToPath } 
 import { rawSecp256k1PubkeyToRawAddress } from "@cosmjs/amino";
 import { toBech32 } from "@cosmjs/encoding";
 
-const MAINNET_API = "https://gateway.me-network.me/api";
-const TESTNET_API = "https://nexus-beta.explorer-testnet.me/api";
 const MEC_PREFIX = "me";
-const MEC_COIN_TYPE = 118; // Cosmos coin type
+const MEC_COIN_TYPE = 118;
 
-function getApiBase(network: string): string {
-  return network === "testnet" ? TESTNET_API : MAINNET_API;
-}
+// Ordered list of endpoints to try for each network.
+// The Meta Earth extension uses /me/balances/{address} against their scan API,
+// with a fallback to the standard Cosmos REST bank endpoint.
+const MAINNET_ENDPOINTS = [
+  { base: "https://nexus.me-network.me",         path: (a: string) => `/api/me/balances/${a}`,                    type: "custom" as const },
+  { base: "https://gateway.me-network.me",        path: (a: string) => `/api/me/balances/${a}`,                    type: "custom" as const },
+  { base: "https://me-explorer.me-network.me",    path: (a: string) => `/cosmos/bank/v1beta1/balances/${a}`,       type: "cosmos" as const },
+  { base: "https://gateway.me-network.me",        path: (a: string) => `/api/cosmos/bank/v1beta1/balances/${a}`,   type: "cosmos" as const },
+];
+
+const TESTNET_ENDPOINTS = [
+  { base: "https://nexus-beta.explorer-testnet.me", path: (a: string) => `/api/me/balances/${a}`,                  type: "custom" as const },
+  { base: "https://explorer-beta.explorer-testnet.me", path: (a: string) => `/cosmos/bank/v1beta1/balances/${a}`, type: "cosmos" as const },
+];
 
 export interface BalanceResult {
   address: string;
   balance: string;
   denom: string;
+  error?: string;
 }
 
 export interface DerivedAccount {
@@ -24,21 +34,69 @@ export interface DerivedAccount {
   hdPath: string;
 }
 
-export async function queryBalance(address: string, network: string): Promise<BalanceResult> {
-  try {
-    const base = getApiBase(network);
-    const url = `${base}/cosmos/bank/v1beta1/balances/${address}`;
-    const res = await axios.get(url, { timeout: 10000 });
-    const balances: Array<{ denom: string; amount: string }> = res.data?.balances ?? [];
-    const mec = balances.find((b) => b.denom === "umec") ?? balances[0];
-    if (mec) {
-      const amount = (parseFloat(mec.amount) / 1_000_000).toFixed(6);
-      return { address, balance: amount, denom: "MEC" };
-    }
-    return { address, balance: "0.000000", denom: "MEC" };
-  } catch {
-    return { address, balance: "unavailable", denom: "MEC" };
+function parseCosmosBalance(data: unknown, address: string): BalanceResult | null {
+  const balances: Array<{ denom: string; amount: string }> =
+    (data as { balances?: Array<{ denom: string; amount: string }> })?.balances ?? [];
+  const mec = balances.find((b) => b.denom === "umec") ?? balances[0];
+  if (mec) {
+    const amount = (parseFloat(mec.amount) / 1_000_000).toFixed(6);
+    return { address, balance: amount, denom: "MEC" };
   }
+  return { address, balance: "0.000000", denom: "MEC" };
+}
+
+function parseCustomBalance(data: unknown, address: string): BalanceResult | null {
+  if (!data || typeof data !== "object") return null;
+  const d = data as Record<string, unknown>;
+
+  // {balance: "123456", denom: "umec"} or {amount: "123456"}
+  const raw = d["balance"] ?? d["amount"] ?? d["umec"];
+  if (typeof raw === "string" || typeof raw === "number") {
+    const amount = (parseFloat(String(raw)) / 1_000_000).toFixed(6);
+    return { address, balance: amount, denom: "MEC" };
+  }
+
+  // {balances: [{denom, amount}]}
+  if (Array.isArray(d["balances"])) {
+    return parseCosmosBalance(data, address);
+  }
+
+  // {data: {balance: ...}}
+  if (d["data"] && typeof d["data"] === "object") {
+    return parseCustomBalance(d["data"], address);
+  }
+
+  return null;
+}
+
+export async function queryBalance(address: string, network: string): Promise<BalanceResult> {
+  const endpoints = network === "testnet" ? TESTNET_ENDPOINTS : MAINNET_ENDPOINTS;
+  const lastError: string[] = [];
+
+  for (const ep of endpoints) {
+    try {
+      const url = ep.base + ep.path(address);
+      const res = await axios.get(url, {
+        timeout: 8000,
+        headers: { Accept: "application/json" },
+        validateStatus: (s) => s === 200,
+      });
+
+      let result: BalanceResult | null = null;
+      if (ep.type === "cosmos") {
+        result = parseCosmosBalance(res.data, address);
+      } else {
+        result = parseCustomBalance(res.data, address) ?? parseCosmosBalance(res.data, address);
+      }
+
+      if (result) return result;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      lastError.push(`${ep.base}: ${msg}`);
+    }
+  }
+
+  return { address, balance: "unavailable", denom: "MEC", error: lastError[0] };
 }
 
 /**
@@ -57,22 +115,13 @@ export async function deriveMECAddressAsync(mnemonic: string, index = 0): Promis
   return { address, hdIndex: index, hdPath };
 }
 
-/**
- * Synchronous wrapper — used in routes that can't be async at top-level.
- * For the import endpoint we use the async version directly.
- * This falls back to a deterministic placeholder if crypto fails.
- */
 export function deriveMECAddress(mnemonic: string): string {
-  // Placeholder used only in legacy createWallet — real derivation is async
   const hash = Buffer.from(mnemonic.trim().split(" ").slice(0, 4).join(""))
     .toString("hex")
     .slice(0, 39);
   return `me1${hash}`;
 }
 
-/**
- * Derive multiple accounts from a mnemonic (indices 0..count-1).
- */
 export async function deriveMultipleAccounts(
   mnemonic: string,
   count: number
