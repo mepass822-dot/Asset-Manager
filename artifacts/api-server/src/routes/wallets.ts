@@ -428,6 +428,91 @@ router.post("/wallets/bulk-import", async (req, res): Promise<void> => {
   });
 });
 
+// Bulk private-key import — one raw private key per line (hex / 0x-hex / base64)
+router.post("/wallets/bulk-import-keys", async (req, res): Promise<void> => {
+  const { keys, password, network = "mainnet" } = req.body as {
+    keys: string;
+    password: string;
+    network?: string;
+  };
+
+  if (!keys || typeof keys !== "string") {
+    res.status(400).json({ error: "keys (text block) is required" });
+    return;
+  }
+  if (!password) {
+    res.status(400).json({ error: "password is required" });
+    return;
+  }
+
+  const lines = keys
+    .split(/[\n;]/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+
+  if (lines.length === 0) {
+    res.status(400).json({ error: "No private keys found" });
+    return;
+  }
+
+  const results = {
+    verified:   [] as Array<{ address: string; label: string; walletId: number }>,
+    unverified: [] as Array<{ address: string; label: string; walletId: number }>,
+    skipped:    [] as Array<{ reason: string; key: string }>,
+  };
+
+  for (let i = 0; i < lines.length; i++) {
+    const rawKey = lines[i];
+    const displayKey = rawKey.slice(0, 12) + "…";
+    try {
+      const { address, privkeyHex } = await deriveAddressFromPrivateKey(rawKey);
+
+      const existing = await db
+        .select({ id: walletsTable.id })
+        .from(walletsTable)
+        .where(eq(walletsTable.address, address));
+      if (existing.length > 0) {
+        results.skipped.push({ reason: "duplicate", key: displayKey });
+        continue;
+      }
+
+      const verified = await isAddressVerifiedOnChain(address, network);
+      const label = verified
+        ? `Key #${i + 1} (${address.slice(0, 10)})`
+        : `Key #${i + 1} [UNVERIFIED] (${address.slice(0, 10)})`;
+
+      const encryptedMnemonic = encryptMnemonic(PRIVATE_KEY_PREFIX + privkeyHex, password);
+
+      const [inserted] = await db
+        .insert(walletsTable)
+        .values({ label, address, encryptedMnemonic, network, hdIndex: 0, verified, importSource: "bulk_key_import" })
+        .returning({ id: walletsTable.id, address: walletsTable.address, label: walletsTable.label });
+
+      if (verified) {
+        results.verified.push({ address: inserted.address, label: inserted.label, walletId: inserted.id });
+      } else {
+        results.unverified.push({ address: inserted.address, label: inserted.label, walletId: inserted.id });
+      }
+    } catch (err) {
+      results.skipped.push({ reason: err instanceof Error ? err.message : String(err), key: displayKey });
+    }
+  }
+
+  req.log.info(
+    { verified: results.verified.length, unverified: results.unverified.length, skipped: results.skipped.length },
+    "Bulk private key import complete",
+  );
+
+  res.json({
+    total: lines.length,
+    verified: results.verified.length,
+    unverified: results.unverified.length,
+    skipped: results.skipped.length,
+    wallets: { verified: results.verified, unverified: results.unverified },
+    skippedDetails: results.skipped,
+  });
+});
+
 // Preview derived accounts from a mnemonic without saving them
 router.post("/wallets/derive-accounts", async (req, res): Promise<void> => {
   const { mnemonic, count = 5 } = req.body as { mnemonic: string; count?: number };

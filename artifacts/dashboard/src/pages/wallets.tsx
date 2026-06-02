@@ -484,6 +484,150 @@ function BulkImportDialog({ onImported }: { onImported: () => void }) {
   );
 }
 
+// ─── Bulk private-key import dialog ──────────────────────────────────────────
+function BulkPrivateKeysImportDialog({ onImported }: { onImported: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [keys, setKeys] = useState("");
+  const [password, setPassword] = useState("");
+  const [network, setNetwork] = useState("mainnet");
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<any>(null);
+  const { toast } = useToast();
+
+  const lineCount = keys.split("\n").filter((l) => l.trim()).length;
+
+  const handleImport = async () => {
+    if (!keys.trim() || !password) return;
+    setLoading(true);
+    setResult(null);
+    try {
+      const resp = await authFetch("/api/wallets/bulk-import-keys", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ keys, password, network }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || "Import failed");
+      setResult(data);
+      onImported();
+      toast({
+        title: "Bulk Key Import Complete",
+        description: `${data.verified} verified, ${data.unverified} unverified, ${data.skipped} skipped.`,
+      });
+    } catch (err) {
+      toast({ title: "Import Failed", description: String(err), variant: "destructive" });
+    }
+    setLoading(false);
+  };
+
+  const handleClose = (v: boolean) => {
+    setOpen(v);
+    if (!v) { setKeys(""); setPassword(""); setResult(null); }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={handleClose}>
+      <DialogTrigger asChild>
+        <Button variant="outline" className="gap-2 border-amber-500/40 text-amber-400 hover:bg-amber-500/10">
+          <KeyRound className="h-4 w-4" /> Bulk Key Import
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-[520px]">
+        <DialogHeader>
+          <DialogTitle>Bulk Private Key Import</DialogTitle>
+          <DialogDescription>
+            Paste one private key per line — raw hex (64 chars), 0x-prefixed hex, or Base64 encoded 32-byte keys. Each is verified on-chain and stored securely encrypted.
+          </DialogDescription>
+        </DialogHeader>
+
+        {result ? (
+          <div className="space-y-4 py-2">
+            <div className="grid grid-cols-3 gap-3 text-center">
+              <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3">
+                <div className="text-2xl font-bold text-emerald-400">{result.verified}</div>
+                <div className="text-xs text-muted-foreground mt-1 flex items-center justify-center gap-1">
+                  <ShieldCheck className="h-3 w-3 text-emerald-400" /> Verified
+                </div>
+              </div>
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
+                <div className="text-2xl font-bold text-amber-400">{result.unverified}</div>
+                <div className="text-xs text-muted-foreground mt-1 flex items-center justify-center gap-1">
+                  <ShieldOff className="h-3 w-3 text-amber-400" /> Unverified
+                </div>
+              </div>
+              <div className="rounded-lg border border-border/40 bg-muted/30 p-3">
+                <div className="text-2xl font-bold text-muted-foreground">{result.skipped}</div>
+                <div className="text-xs text-muted-foreground mt-1">Skipped</div>
+              </div>
+            </div>
+            {result.skippedDetails?.length > 0 && (
+              <div className="rounded-md border border-border/40 bg-muted/20 p-3 max-h-[120px] overflow-auto">
+                <p className="text-xs font-medium text-muted-foreground mb-2">Skipped reasons:</p>
+                {result.skippedDetails.map((s: any, i: number) => (
+                  <div key={i} className="text-xs text-muted-foreground/70">{s.reason}: {s.key}</div>
+                ))}
+              </div>
+            )}
+            <Button className="w-full" onClick={() => handleClose(false)}>Done</Button>
+          </div>
+        ) : (
+          <div className="space-y-4 py-2">
+            <div className="grid gap-2">
+              <div className="flex items-center justify-between">
+                <Label>Private Keys <span className="text-muted-foreground">(one per line)</span></Label>
+                {lineCount > 0 && (
+                  <span className="text-xs text-amber-400 font-mono">{lineCount} key{lineCount !== 1 ? "s" : ""} detected</span>
+                )}
+              </div>
+              <textarea
+                className="w-full h-40 bg-background border border-border rounded-md px-3 py-2 text-sm font-mono resize-none outline-none focus:border-primary placeholder:text-muted-foreground"
+                placeholder={"a1b2c3d4e5f6...64hexchars\n0xa1b2c3d4e5f6...64hexchars\nBase64encoded32bytes==\n..."}
+                value={keys}
+                onChange={(e) => setKeys(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Each non-empty line is treated as one key. Duplicates and invalid keys are skipped. On-chain check confirms the address has activity on ME Hub.
+              </p>
+            </div>
+            <div className="grid gap-2">
+              <Label>Encryption Password</Label>
+              <Input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Encrypts all imported keys at rest"
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label>Network</Label>
+              <Select value={network} onValueChange={setNetwork}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="mainnet">Mainnet</SelectItem>
+                  <SelectItem value="testnet">Testnet</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <DialogFooter>
+              <Button
+                disabled={loading || !keys.trim() || !password}
+                onClick={handleImport}
+                className="gap-2"
+              >
+                {loading ? (
+                  <><RefreshCw className="h-4 w-4 animate-spin" /> Importing & verifying…</>
+                ) : (
+                  <><KeyRound className="h-4 w-4" /> Import {lineCount > 0 ? lineCount : ""} Key{lineCount !== 1 ? "s" : ""}</>
+                )}
+              </Button>
+            </DialogFooter>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ─── Staking rewards panel ────────────────────────────────────────────────────
 function WalletStakingPanel({ id }: { id: number }) {
   const { data, isLoading, refetch, isFetching } = useGetWalletStakingRewards(id);
@@ -724,6 +868,7 @@ export default function Wallets() {
           <ExtensionImportDialog onImported={invalidate} />
           <DeriveAccountsDialog onImport={handleDerivedImport} />
           <BulkImportDialog onImported={invalidate} />
+          <BulkPrivateKeysImportDialog onImported={invalidate} />
           <Dialog open={isAddOpen} onOpenChange={(v) => { setIsAddOpen(v); if (!v) { setLabel(""); setMnemonic(""); setPrivateKey(""); setPassword(""); setNetwork("mainnet"); setAddMode("mnemonic"); } }}>
             <DialogTrigger asChild>
               <Button className="gap-2"><Plus className="h-4 w-4" /> Add Manually</Button>
