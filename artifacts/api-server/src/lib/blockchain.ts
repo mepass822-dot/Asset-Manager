@@ -191,6 +191,18 @@ export async function getPrivateKeyHex(secret: string, hdIndex = 0): Promise<str
   return Buffer.from(privkey).toString("hex");
 }
 
+/**
+ * Derive the on-chain gc1... address that corresponds to a given private key hex.
+ * This lets us verify that our derived key actually matches the stored address.
+ */
+export async function gcAddressFromPrivkeyHex(privkeyHex: string): Promise<string> {
+  const privkey = Buffer.from(privkeyHex, "hex");
+  const { pubkey } = await Secp256k1.makeKeypair(privkey);
+  const compressed = Secp256k1.compressPubkey(pubkey);
+  const rawAddr = rawSecp256k1PubkeyToRawAddress(compressed);
+  return toBech32(MEC_CHAIN_PREFIX, rawAddr);
+}
+
 export interface SendResult {
   txHash: string;
   height: number;

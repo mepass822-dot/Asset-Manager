@@ -8,7 +8,7 @@ import {
   GetWalletBalanceParams,
 } from "@workspace/api-zod";
 import { encryptMnemonic, decryptMnemonic } from "../lib/crypto";
-import { queryBalance, deriveMECAddressAsync, deriveMultipleAccounts, deriveAddressFromPrivateKey, PRIVATE_KEY_PREFIX, sendMEC, getPrivateKeyHex } from "../lib/blockchain";
+import { queryBalance, deriveMECAddressAsync, deriveMultipleAccounts, deriveAddressFromPrivateKey, PRIVATE_KEY_PREFIX, sendMEC, getPrivateKeyHex, meToGcAddress, gcAddressFromPrivkeyHex } from "../lib/blockchain";
 
 const router = Router();
 
@@ -24,7 +24,15 @@ router.get("/wallets", async (req, res): Promise<void> => {
     })
     .from(walletsTable)
     .orderBy(walletsTable.createdAt);
-  res.json(wallets);
+
+  // Attach the on-chain gc1... address alongside each wallet
+  const walletsWithGc = wallets.map((w) => {
+    let gcAddress: string | null = null;
+    try { gcAddress = meToGcAddress(w.address); } catch { /* ignore */ }
+    return { ...w, gcAddress };
+  });
+
+  res.json(walletsWithGc);
 });
 
 router.post("/wallets", async (req, res): Promise<void> => {
@@ -200,6 +208,29 @@ router.post("/wallets/:id/send", async (req, res): Promise<void> => {
     return;
   }
 
+  // Verify the derived key actually corresponds to the stored address
+  const storedGc = meToGcAddress(wallet.address);
+  const derivedGc = await gcAddressFromPrivkeyHex(privkeyHex);
+  if (storedGc !== derivedGc) {
+    req.log.error({ walletId: id, storedGc, derivedGc }, "Key derivation mismatch — wrong HD path or coin type");
+    res.status(400).json({
+      error: `Key mismatch: the stored address is ${wallet.address} (on-chain: ${storedGc}), but the private key derived from your mnemonic corresponds to a different address (${derivedGc}). This wallet may have been imported with a different HD path or coin type than what the agent uses (coin type 118, path m/44'/118'/0'/0/${wallet.hdIndex ?? 0}).`,
+    });
+    return;
+  }
+
+  // Pre-flight: check on-chain balance before attempting the send
+  try {
+    const bal = await queryBalance(wallet.address, wallet.network ?? "mainnet");
+    const numBal = parseFloat(bal.balance);
+    if (!isNaN(numBal) && numBal === 0) {
+      res.status(400).json({
+        error: `Wallet has no on-chain balance. The address ${wallet.address} (on-chain: ${storedGc}) has 0 MEC on the gc_20-1 chain. Please send MEC to this address before initiating a transfer.`,
+      });
+      return;
+    }
+  } catch { /* if balance check fails, proceed and let the chain error speak */ }
+
   try {
     const result = await sendMEC({ privkeyHex, fromAddress: wallet.address, toAddress, amountMEC, memo });
     req.log.info({ walletId: id, txHash: result.txHash, amountMEC, toAddress }, "MEC sent");
@@ -207,6 +238,18 @@ router.post("/wallets/:id/send", async (req, res): Promise<void> => {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     req.log.error({ walletId: id, err: msg }, "Send failed");
+
+    // Translate common chain errors into plain English
+    if (msg.includes("does not exist on chain") || msg.includes("not found")) {
+      res.status(400).json({
+        error: `The wallet address has no on-chain history. Send MEC to ${wallet.address} (on-chain gc1 address: ${storedGc}) first, then retry the transfer.`,
+      });
+      return;
+    }
+    if (msg.includes("insufficient funds")) {
+      res.status(400).json({ error: `Insufficient funds. Check that your wallet has enough MEC to cover the amount plus the 1 GC network fee.` });
+      return;
+    }
     res.status(500).json({ error: msg });
   }
 });

@@ -575,9 +575,18 @@ export default function Wallets() {
                     </div>
                   </TableCell>
                   <TableCell className="font-mono text-xs text-muted-foreground">
-                    <div className="flex items-center">
-                      {wallet.address.slice(0, 10)}...{wallet.address.slice(-8)}
-                      <CopyButton text={wallet.address} />
+                    <div className="flex flex-col gap-0.5">
+                      <div className="flex items-center">
+                        <span className="text-foreground">{wallet.address.slice(0, 10)}…{wallet.address.slice(-6)}</span>
+                        <CopyButton text={wallet.address} />
+                      </div>
+                      {(wallet as any).gcAddress && (
+                        <div className="flex items-center text-[10px] text-muted-foreground/60">
+                          <span className="mr-1 text-primary/50">on-chain:</span>
+                          {(wallet as any).gcAddress.slice(0, 10)}…{(wallet as any).gcAddress.slice(-6)}
+                          <CopyButton text={(wallet as any).gcAddress} />
+                        </div>
+                      )}
                     </div>
                   </TableCell>
                   <TableCell className="text-center">
