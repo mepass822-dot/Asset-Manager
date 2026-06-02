@@ -3,6 +3,10 @@
   "buildCommand": "pnpm --filter @workspace/dashboard run build",
   "outputDirectory": "artifacts/dashboard/dist/public",
   "framework": null,
+  "env": {
+    "PORT": "3000",
+    "BASE_PATH": "/"
+  },
   "rewrites": [
     { "source": "/api/:path*", "destination": "https://your-api-server.com/api/:path*" },
     { "source": "/(.*)", "destination": "/index.html" }
