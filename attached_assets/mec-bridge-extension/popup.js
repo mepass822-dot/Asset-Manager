@@ -12,6 +12,61 @@ function getSavedUrl() {
 }
 getSavedUrl();
 
+// Try to extract valid wallets from any data blob, regardless of key name or structure
+function extractWallets(data) {
+  if (!data) return [];
+
+  // Parse string if needed
+  if (typeof data === "string") {
+    try { data = JSON.parse(data); } catch (e) { return []; }
+  }
+
+  // Case 1: top-level array of wallets e.g. [{mnemonic, accounts}, ...]
+  if (Array.isArray(data)) {
+    const withMnemonic = data.filter(w => w && w.mnemonic);
+    if (withMnemonic.length > 0) return withMnemonic;
+
+    // Case 2: flat array of accounts e.g. [{address, mnemonic}, ...]
+    const withAddress = data.filter(w => w && (w.address || w.mnemonic));
+    if (withAddress.length > 0) return withAddress.map(a => ({
+      walletName: a.name || a.accountName || a.label || "Imported",
+      mnemonic: a.mnemonic || a.seed || a.phrase,
+      accounts: a.address ? [{ address: a.address, accountName: a.name || a.accountName }] : [],
+    })).filter(w => w.mnemonic);
+  }
+
+  // Case 3: object with a known array field
+  const arrayFields = ["accountList", "wallets", "accounts", "keyring", "keyrings", "items", "data"];
+  for (const field of arrayFields) {
+    if (data[field]) {
+      const result = extractWallets(data[field]);
+      if (result.length > 0) return result;
+    }
+  }
+
+  // Case 4: object where values are wallet objects {mnemonic, ...}
+  const values = Object.values(data);
+  const withMnemonic = values.filter(v => v && typeof v === "object" && (v.mnemonic || v.seed || v.phrase));
+  if (withMnemonic.length > 0) {
+    return withMnemonic.map(v => ({
+      walletName: v.walletName || v.name || v.label || "Imported",
+      mnemonic: v.mnemonic || v.seed || v.phrase,
+      accounts: Array.isArray(v.accounts) ? v.accounts : (v.address ? [{ address: v.address }] : []),
+    }));
+  }
+
+  return [];
+}
+
+// Scan ALL keys in a storage object for wallet data
+function findWalletsInStorage(storageObj) {
+  for (const [key, value] of Object.entries(storageObj)) {
+    const wallets = extractWallets(value);
+    if (wallets.length > 0) return wallets;
+  }
+  return [];
+}
+
 exportBtn.addEventListener("click", async () => {
   const dashboardUrl = document.getElementById("dashboardUrl").value.trim().replace(/\/$/, "");
   const password = document.getElementById("password").value.trim();
@@ -22,77 +77,88 @@ exportBtn.addEventListener("click", async () => {
 
   localStorage.setItem("mec_agent_url", dashboardUrl);
   exportBtn.disabled = true;
-  showStatus("Reading all accounts from Meta Earth extension...", "info");
+  showStatus("Scanning extension storage for wallets...", "info");
 
-  chrome.storage.local.get(["accountList"], (result) => {
-    let accountList = result.accountList;
+  // Step 1: scan ALL of chrome.storage.local (not just one key)
+  chrome.storage.local.get(null, (allStorage) => {
+    const wallets = findWalletsInStorage(allStorage || {});
 
-    if (typeof accountList === "string") {
-      try { accountList = JSON.parse(accountList); } catch (e) {}
-    }
-
-    // Filter wallets that have a mnemonic and at least one account with an address
-    const validWallets = Array.isArray(accountList)
-      ? accountList.filter(w => w.mnemonic && Array.isArray(w.accounts) && w.accounts.some(a => a.address))
-      : [];
-
-    if (validWallets.length === 0) {
-      // Try from active tab localStorage
-      showStatus("Trying active tab...", "info");
-      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-        if (!tabs[0]) {
-          showStatus("No accounts found. Try the manual import method in the dashboard.", "error");
-          exportBtn.disabled = false;
-          return;
-        }
-        chrome.scripting.executeScript({
-          target: { tabId: tabs[0].id },
-          func: () => {
-            try {
-              const raw = localStorage.getItem("accountList");
-              return raw ? JSON.parse(raw) : null;
-            } catch (e) { return null; }
-          }
-        }, (results) => {
-          const tabData = results && results[0] && results[0].result;
-          if (tabData && Array.isArray(tabData) && tabData.length > 0) {
-            sendToAgent(tabData, dashboardUrl, password, network);
-          } else {
-            showStatus("No accounts found. Use manual import in the dashboard.", "error");
-            exportBtn.disabled = false;
-          }
-        });
-      });
+    if (wallets.length > 0) {
+      sendToAgent(wallets, dashboardUrl, password, network);
       return;
     }
 
-    sendToAgent(validWallets, dashboardUrl, password, network);
+    // Step 2: scan ALL localStorage keys on the active tab
+    showStatus("Scanning active tab storage...", "info");
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      if (!tabs || !tabs[0]) {
+        showStatus("No wallet accounts found. Make sure the Meta Earth wallet tab is open and active, then try again.", "error");
+        exportBtn.disabled = false;
+        return;
+      }
+
+      chrome.scripting.executeScript({
+        target: { tabId: tabs[0].id },
+        func: () => {
+          const result = {};
+          for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            try {
+              const val = localStorage.getItem(key);
+              result[key] = val ? JSON.parse(val) : val;
+            } catch (e) {
+              result[key] = localStorage.getItem(key);
+            }
+          }
+          return result;
+        }
+      }, (results) => {
+        const tabData = results && results[0] && results[0].result;
+        if (tabData && typeof tabData === "object") {
+          const tabWallets = findWalletsInStorage(tabData);
+          if (tabWallets.length > 0) {
+            sendToAgent(tabWallets, dashboardUrl, password, network);
+            return;
+          }
+        }
+
+        showStatus(
+          "No wallet data found. Open the Meta Earth wallet website as your active tab, then click Export again. " +
+          "Or use the manual import option in the dashboard.",
+          "error"
+        );
+        exportBtn.disabled = false;
+      });
+    });
   });
 });
 
 async function sendToAgent(accountList, dashboardUrl, password, network) {
-  // Expand ALL accounts within each wallet — each at its correct HD index
   const wallets = [];
+
   accountList.forEach((w, wi) => {
-    if (!w.mnemonic) return;
+    const mnemonic = w.mnemonic || w.seed || w.phrase;
+    if (!mnemonic) return;
+
     const baseOffset = typeof w.accountOffset === "number" ? w.accountOffset : 0;
-    const accounts = Array.isArray(w.accounts) ? w.accounts.filter(a => a.address) : [];
+    const accounts = Array.isArray(w.accounts) ? w.accounts.filter(a => a && a.address) : [];
 
     if (accounts.length === 0) {
       wallets.push({
-        label: w.walletName || `Wallet ${wi + 1}`,
-        mnemonic: w.mnemonic,
+        label: w.walletName || w.name || w.label || `Wallet ${wi + 1}`,
+        mnemonic,
         hdIndex: 0,
         password,
         network,
       });
     } else {
       accounts.forEach((a, ai) => {
+        const name = a.accountName || a.name || a.label;
         wallets.push({
-          label: a.accountName
-            ? `${w.walletName || `Wallet ${wi + 1}`} / ${a.accountName}`
-            : `${w.walletName || `Wallet ${wi + 1}`} / Account ${baseOffset + ai}`,
-          mnemonic: w.mnemonic,
+          label: name
+            ? `${w.walletName || w.name || `Wallet ${wi + 1}`} / ${name}`
+            : `${w.walletName || w.name || `Wallet ${wi + 1}`} / Account ${baseOffset + ai}`,
+          mnemonic,
           address: a.address || "",
           hdIndex: baseOffset + ai,
           password,
@@ -102,8 +168,13 @@ async function sendToAgent(accountList, dashboardUrl, password, network) {
     }
   });
 
-  const totalAccounts = wallets.length;
-  showStatus(`Found ${totalAccounts} account(s) across ${accountList.length} wallet(s). Sending...`, "info");
+  if (wallets.length === 0) {
+    showStatus("Wallets found but none had a recoverable mnemonic. Use manual import in the dashboard.", "error");
+    exportBtn.disabled = false;
+    return;
+  }
+
+  showStatus(`Found ${wallets.length} account(s). Sending to dashboard...`, "info");
 
   try {
     const resp = await fetch(`${dashboardUrl}/api/wallets/import-extension`, {
