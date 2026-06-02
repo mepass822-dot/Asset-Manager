@@ -361,38 +361,96 @@ function ExtensionImportDialog({ onImported }: { onImported: () => void }) {
   );
 }
 
-// ─── Bulk import dialog ───────────────────────────────────────────────────────
+// ─── Bulk import dialog (mnemonic phrases + raw private keys) ────────────────
 function BulkImportDialog({ onImported }: { onImported: () => void }) {
   const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState<"mnemonic" | "privateKey">("mnemonic");
   const [mnemonics, setMnemonics] = useState("");
+  const [keys, setKeys] = useState("");
   const [password, setPassword] = useState("");
   const [network, setNetwork] = useState("mainnet");
+  const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<any>(null);
   const { toast } = useToast();
   const bulkImport = useBulkImportWallets();
 
-  const handleImport = () => {
+  const keyLineCount = keys.split("\n").filter((l) => l.trim()).length;
+
+  const handleImport = async () => {
     setResult(null);
-    bulkImport.mutate(
-      { data: { mnemonics, password, network } },
-      {
-        onSuccess: (data) => {
-          setResult(data);
-          onImported();
-          toast({
-            title: "Bulk Import Complete",
-            description: `${data.verified} verified, ${data.unverified} unverified, ${data.skipped} skipped.`,
-          });
-        },
-        onError: () => toast({ title: "Bulk Import Failed", variant: "destructive" }),
+    if (mode === "mnemonic") {
+      bulkImport.mutate(
+        { data: { mnemonics, password, network } },
+        {
+          onSuccess: (data) => {
+            setResult(data);
+            onImported();
+            toast({ title: "Bulk Import Complete", description: `${data.verified} verified, ${data.unverified} unverified, ${data.skipped} skipped.` });
+          },
+          onError: () => toast({ title: "Bulk Import Failed", variant: "destructive" }),
+        }
+      );
+    } else {
+      setLoading(true);
+      try {
+        const resp = await authFetch("/api/wallets/bulk-import-keys", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ keys, password, network }),
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.error || "Import failed");
+        setResult(data);
+        onImported();
+        toast({ title: "Bulk Key Import Complete", description: `${data.verified} verified, ${data.unverified} unverified, ${data.skipped} skipped.` });
+      } catch (err) {
+        toast({ title: "Import Failed", description: String(err), variant: "destructive" });
       }
-    );
+      setLoading(false);
+    }
   };
 
   const handleClose = (v: boolean) => {
     setOpen(v);
-    if (!v) { setMnemonics(""); setPassword(""); setResult(null); }
+    if (!v) { setMnemonics(""); setKeys(""); setPassword(""); setResult(null); setMode("mnemonic"); }
   };
+
+  const isPending = mode === "mnemonic" ? bulkImport.isPending : loading;
+  const isDisabled = isPending || !password || (mode === "mnemonic" ? !mnemonics.trim() : !keys.trim());
+
+  const ResultPanel = () => (
+    <div className="space-y-4 py-2">
+      <div className="grid grid-cols-3 gap-3 text-center">
+        <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3">
+          <div className="text-2xl font-bold text-emerald-400">{result.verified}</div>
+          <div className="text-xs text-muted-foreground mt-1 flex items-center justify-center gap-1">
+            <ShieldCheck className="h-3 w-3 text-emerald-400" /> Verified
+          </div>
+        </div>
+        <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
+          <div className="text-2xl font-bold text-amber-400">{result.unverified}</div>
+          <div className="text-xs text-muted-foreground mt-1 flex items-center justify-center gap-1">
+            <ShieldOff className="h-3 w-3 text-amber-400" /> Unverified
+          </div>
+        </div>
+        <div className="rounded-lg border border-border/40 bg-muted/30 p-3">
+          <div className="text-2xl font-bold text-muted-foreground">{result.skipped}</div>
+          <div className="text-xs text-muted-foreground mt-1">Skipped</div>
+        </div>
+      </div>
+      {result.skippedDetails?.length > 0 && (
+        <div className="rounded-md border border-border/40 bg-muted/20 p-3 max-h-[120px] overflow-auto">
+          <p className="text-xs font-medium text-muted-foreground mb-2">Skipped reasons:</p>
+          {result.skippedDetails.map((s: any, i: number) => (
+            <div key={i} className="text-xs text-muted-foreground/70">
+              {s.reason}: {(s.phrase ?? s.key ?? "").slice(0, 20)}…
+            </div>
+          ))}
+        </div>
+      )}
+      <Button className="w-full" onClick={() => handleClose(false)}>Done</Button>
+    </div>
+  );
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
@@ -401,55 +459,63 @@ function BulkImportDialog({ onImported }: { onImported: () => void }) {
       </DialogTrigger>
       <DialogContent className="sm:max-w-[520px]">
         <DialogHeader>
-          <DialogTitle>Bulk Mnemonic Import</DialogTitle>
+          <DialogTitle>Bulk Import</DialogTitle>
           <DialogDescription>
-            Paste one mnemonic phrase per line (12 or 24 words each). Each phrase will be verified on-chain and stored as verified or unverified.
+            Import multiple wallets at once — paste mnemonic phrases or raw private keys, one per line.
           </DialogDescription>
         </DialogHeader>
-        {result ? (
+
+        {result ? <ResultPanel /> : (
           <div className="space-y-4 py-2">
-            <div className="grid grid-cols-3 gap-3 text-center">
-              <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3">
-                <div className="text-2xl font-bold text-emerald-400">{result.verified}</div>
-                <div className="text-xs text-muted-foreground mt-1 flex items-center justify-center gap-1">
-                  <ShieldCheck className="h-3 w-3 text-emerald-400" /> Verified
-                </div>
-              </div>
-              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
-                <div className="text-2xl font-bold text-amber-400">{result.unverified}</div>
-                <div className="text-xs text-muted-foreground mt-1 flex items-center justify-center gap-1">
-                  <ShieldOff className="h-3 w-3 text-amber-400" /> Unverified
-                </div>
-              </div>
-              <div className="rounded-lg border border-border/40 bg-muted/30 p-3">
-                <div className="text-2xl font-bold text-muted-foreground">{result.skipped}</div>
-                <div className="text-xs text-muted-foreground mt-1">Skipped</div>
-              </div>
+            {/* Mode switcher */}
+            <div className="flex rounded-lg border border-border/60 overflow-hidden text-sm">
+              <button
+                onClick={() => setMode("mnemonic")}
+                className={`flex-1 flex items-center justify-center gap-2 py-2 transition-colors ${mode === "mnemonic" ? "bg-primary text-primary-foreground" : "hover:bg-muted text-muted-foreground"}`}
+              >
+                <BookText className="h-3.5 w-3.5" /> Mnemonic Phrases
+              </button>
+              <button
+                onClick={() => setMode("privateKey")}
+                className={`flex-1 flex items-center justify-center gap-2 py-2 transition-colors border-l border-border/60 ${mode === "privateKey" ? "bg-primary text-primary-foreground" : "hover:bg-muted text-muted-foreground"}`}
+              >
+                <KeyRound className="h-3.5 w-3.5" /> Private Keys
+              </button>
             </div>
-            {result.skippedDetails?.length > 0 && (
-              <div className="rounded-md border border-border/40 bg-muted/20 p-3 max-h-[120px] overflow-auto">
-                <p className="text-xs font-medium text-muted-foreground mb-2">Skipped reasons:</p>
-                {result.skippedDetails.map((s: any, i: number) => (
-                  <div key={i} className="text-xs text-muted-foreground/70">{s.reason}: {s.phrase?.slice(0, 20)}…</div>
-                ))}
+
+            {mode === "mnemonic" ? (
+              <div className="grid gap-2">
+                <Label>Mnemonic Phrases <span className="text-muted-foreground">(one per line)</span></Label>
+                <textarea
+                  className="w-full h-36 bg-background border border-border rounded-md px-3 py-2 text-sm font-mono resize-none outline-none focus:border-primary placeholder:text-muted-foreground"
+                  placeholder={"word1 word2 word3 ... word12\nword1 word2 word3 ... word24\n..."}
+                  value={mnemonics}
+                  onChange={(e) => setMnemonics(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  12 or 24 words per line. Duplicates are skipped. On-chain verification confirms the address exists on ME Hub.
+                </p>
+              </div>
+            ) : (
+              <div className="grid gap-2">
+                <div className="flex items-center justify-between">
+                  <Label>Private Keys <span className="text-muted-foreground">(one per line)</span></Label>
+                  {keyLineCount > 0 && (
+                    <span className="text-xs text-primary font-mono">{keyLineCount} key{keyLineCount !== 1 ? "s" : ""} detected</span>
+                  )}
+                </div>
+                <textarea
+                  className="w-full h-36 bg-background border border-border rounded-md px-3 py-2 text-sm font-mono resize-none outline-none focus:border-primary placeholder:text-muted-foreground"
+                  placeholder={"a1b2c3d4e5f6...64hexchars\n0xa1b2c3d4e5f6...64hexchars\nBase64encoded32bytes==\n..."}
+                  value={keys}
+                  onChange={(e) => setKeys(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Raw hex (64 chars), 0x-prefixed hex, or Base64 encoded 32-byte keys. Duplicates and invalid keys are skipped.
+                </p>
               </div>
             )}
-            <Button className="w-full" onClick={() => handleClose(false)}>Done</Button>
-          </div>
-        ) : (
-          <div className="space-y-4 py-2">
-            <div className="grid gap-2">
-              <Label>Mnemonic Phrases <span className="text-muted-foreground">(one per line)</span></Label>
-              <textarea
-                className="w-full h-40 bg-background border border-border rounded-md px-3 py-2 text-sm font-mono resize-none outline-none focus:border-primary placeholder:text-muted-foreground"
-                placeholder={"word1 word2 word3 ... word12\nword1 word2 word3 ... word24\n..."}
-                value={mnemonics}
-                onChange={(e) => setMnemonics(e.target.value)}
-              />
-              <p className="text-xs text-muted-foreground">
-                Each non-empty line is treated as one wallet. Duplicates are skipped. On-chain verification confirms the address exists on the ME Hub.
-              </p>
-            </div>
+
             <div className="grid gap-2">
               <Label>Encryption Password</Label>
               <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Securely encrypts all imported keys" />
@@ -465,159 +531,13 @@ function BulkImportDialog({ onImported }: { onImported: () => void }) {
               </Select>
             </div>
             <DialogFooter>
-              <Button
-                disabled={bulkImport.isPending || !mnemonics.trim() || !password}
-                onClick={handleImport}
-                className="gap-2"
-              >
-                {bulkImport.isPending ? (
+              <Button disabled={isDisabled} onClick={handleImport} className="gap-2">
+                {isPending ? (
                   <><RefreshCw className="h-4 w-4 animate-spin" /> Importing & verifying…</>
-                ) : (
+                ) : mode === "mnemonic" ? (
                   <><Upload className="h-4 w-4" /> Import & Verify</>
-                )}
-              </Button>
-            </DialogFooter>
-          </div>
-        )}
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-// ─── Bulk private-key import dialog ──────────────────────────────────────────
-function BulkPrivateKeysImportDialog({ onImported }: { onImported: () => void }) {
-  const [open, setOpen] = useState(false);
-  const [keys, setKeys] = useState("");
-  const [password, setPassword] = useState("");
-  const [network, setNetwork] = useState("mainnet");
-  const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<any>(null);
-  const { toast } = useToast();
-
-  const lineCount = keys.split("\n").filter((l) => l.trim()).length;
-
-  const handleImport = async () => {
-    if (!keys.trim() || !password) return;
-    setLoading(true);
-    setResult(null);
-    try {
-      const resp = await authFetch("/api/wallets/bulk-import-keys", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ keys, password, network }),
-      });
-      const data = await resp.json();
-      if (!resp.ok) throw new Error(data.error || "Import failed");
-      setResult(data);
-      onImported();
-      toast({
-        title: "Bulk Key Import Complete",
-        description: `${data.verified} verified, ${data.unverified} unverified, ${data.skipped} skipped.`,
-      });
-    } catch (err) {
-      toast({ title: "Import Failed", description: String(err), variant: "destructive" });
-    }
-    setLoading(false);
-  };
-
-  const handleClose = (v: boolean) => {
-    setOpen(v);
-    if (!v) { setKeys(""); setPassword(""); setResult(null); }
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={handleClose}>
-      <DialogTrigger asChild>
-        <Button variant="outline" className="gap-2 border-amber-500/40 text-amber-400 hover:bg-amber-500/10">
-          <KeyRound className="h-4 w-4" /> Bulk Key Import
-        </Button>
-      </DialogTrigger>
-      <DialogContent className="sm:max-w-[520px]">
-        <DialogHeader>
-          <DialogTitle>Bulk Private Key Import</DialogTitle>
-          <DialogDescription>
-            Paste one private key per line — raw hex (64 chars), 0x-prefixed hex, or Base64 encoded 32-byte keys. Each is verified on-chain and stored securely encrypted.
-          </DialogDescription>
-        </DialogHeader>
-
-        {result ? (
-          <div className="space-y-4 py-2">
-            <div className="grid grid-cols-3 gap-3 text-center">
-              <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3">
-                <div className="text-2xl font-bold text-emerald-400">{result.verified}</div>
-                <div className="text-xs text-muted-foreground mt-1 flex items-center justify-center gap-1">
-                  <ShieldCheck className="h-3 w-3 text-emerald-400" /> Verified
-                </div>
-              </div>
-              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
-                <div className="text-2xl font-bold text-amber-400">{result.unverified}</div>
-                <div className="text-xs text-muted-foreground mt-1 flex items-center justify-center gap-1">
-                  <ShieldOff className="h-3 w-3 text-amber-400" /> Unverified
-                </div>
-              </div>
-              <div className="rounded-lg border border-border/40 bg-muted/30 p-3">
-                <div className="text-2xl font-bold text-muted-foreground">{result.skipped}</div>
-                <div className="text-xs text-muted-foreground mt-1">Skipped</div>
-              </div>
-            </div>
-            {result.skippedDetails?.length > 0 && (
-              <div className="rounded-md border border-border/40 bg-muted/20 p-3 max-h-[120px] overflow-auto">
-                <p className="text-xs font-medium text-muted-foreground mb-2">Skipped reasons:</p>
-                {result.skippedDetails.map((s: any, i: number) => (
-                  <div key={i} className="text-xs text-muted-foreground/70">{s.reason}: {s.key}</div>
-                ))}
-              </div>
-            )}
-            <Button className="w-full" onClick={() => handleClose(false)}>Done</Button>
-          </div>
-        ) : (
-          <div className="space-y-4 py-2">
-            <div className="grid gap-2">
-              <div className="flex items-center justify-between">
-                <Label>Private Keys <span className="text-muted-foreground">(one per line)</span></Label>
-                {lineCount > 0 && (
-                  <span className="text-xs text-amber-400 font-mono">{lineCount} key{lineCount !== 1 ? "s" : ""} detected</span>
-                )}
-              </div>
-              <textarea
-                className="w-full h-40 bg-background border border-border rounded-md px-3 py-2 text-sm font-mono resize-none outline-none focus:border-primary placeholder:text-muted-foreground"
-                placeholder={"a1b2c3d4e5f6...64hexchars\n0xa1b2c3d4e5f6...64hexchars\nBase64encoded32bytes==\n..."}
-                value={keys}
-                onChange={(e) => setKeys(e.target.value)}
-              />
-              <p className="text-xs text-muted-foreground">
-                Each non-empty line is treated as one key. Duplicates and invalid keys are skipped. On-chain check confirms the address has activity on ME Hub.
-              </p>
-            </div>
-            <div className="grid gap-2">
-              <Label>Encryption Password</Label>
-              <Input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Encrypts all imported keys at rest"
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label>Network</Label>
-              <Select value={network} onValueChange={setNetwork}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="mainnet">Mainnet</SelectItem>
-                  <SelectItem value="testnet">Testnet</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <DialogFooter>
-              <Button
-                disabled={loading || !keys.trim() || !password}
-                onClick={handleImport}
-                className="gap-2"
-              >
-                {loading ? (
-                  <><RefreshCw className="h-4 w-4 animate-spin" /> Importing & verifying…</>
                 ) : (
-                  <><KeyRound className="h-4 w-4" /> Import {lineCount > 0 ? lineCount : ""} Key{lineCount !== 1 ? "s" : ""}</>
+                  <><KeyRound className="h-4 w-4" /> Import {keyLineCount > 0 ? keyLineCount : ""} Key{keyLineCount !== 1 ? "s" : ""}</>
                 )}
               </Button>
             </DialogFooter>
@@ -868,7 +788,6 @@ export default function Wallets() {
           <ExtensionImportDialog onImported={invalidate} />
           <DeriveAccountsDialog onImport={handleDerivedImport} />
           <BulkImportDialog onImported={invalidate} />
-          <BulkPrivateKeysImportDialog onImported={invalidate} />
           <Dialog open={isAddOpen} onOpenChange={(v) => { setIsAddOpen(v); if (!v) { setLabel(""); setMnemonic(""); setPrivateKey(""); setPassword(""); setNetwork("mainnet"); setAddMode("mnemonic"); } }}>
             <DialogTrigger asChild>
               <Button className="gap-2"><Plus className="h-4 w-4" /> Add Manually</Button>
