@@ -3,7 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   useListWallets, useRunAgent,
   getListAgentLogsQueryKey, getGetAgentStatsQueryKey,
-  getGetSchedulerQueryKey,
+  getGetSchedulerQueryKey, getGetSweepConfigQueryKey, getSweepConfig,
 } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -14,10 +14,10 @@ import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Play, Bot, Terminal, Clock, StopCircle, Timer } from "lucide-react";
+import { Play, Bot, Terminal, Clock, StopCircle, Timer, Shuffle, ShieldCheck, Coins, RefreshCw, Save } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import type { AgentRunResult, AgentLog } from "@workspace/api-client-react";
+import type { AgentRunResult, AgentLog, SweepConfig } from "@workspace/api-client-react";
 
 const INTERVALS = [
   { label: "Every 15 min", ms: 15 * 60 * 1000 },
@@ -41,7 +41,7 @@ function formatRelative(dateStr: string | null | undefined) {
 }
 
 export default function Agent() {
-  const { data: wallets, isLoading: walletsLoading } = useListWallets(undefined, { query: { refetchInterval: 30_000 } });
+  const { data: wallets, isLoading: walletsLoading } = useListWallets();
   const runAgent = useRunAgent();
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -50,6 +50,39 @@ export default function Agent() {
   const [masterPassword, setMasterPassword] = useState("");
   const [dryRun, setDryRun] = useState(true);
   const [result, setResult] = useState<AgentRunResult | null>(null);
+
+  // Sweep config state
+  const { data: sweepConfig, refetch: refetchSweepConfig } = useQuery({
+    queryKey: getGetSweepConfigQueryKey(),
+    queryFn: () => getSweepConfig(),
+    refetchInterval: 30_000,
+  });
+  const [sweepMasterAddress, setSweepMasterAddress] = useState("");
+  const [sweepEnabled, setSweepEnabled] = useState(false);
+  const [sweepAutoClaimStaking, setSweepAutoClaimStaking] = useState(true);
+  const [sweepDividendWindowDays, setSweepDividendWindowDays] = useState(7);
+  const [sweepMinAmount, setSweepMinAmount] = useState("1");
+  const [sweepEditing, setSweepEditing] = useState(false);
+
+  const saveSweepConfig = useMutation({
+    mutationFn: (body: object) =>
+      fetch("/api/agent/sweep-config", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then(r => r.json()),
+    onSuccess: () => {
+      refetchSweepConfig();
+      setSweepEditing(false);
+      toast({ title: "Sweep config saved" });
+    },
+    onError: () => toast({ title: "Failed to save sweep config", variant: "destructive" }),
+  });
+
+  const handleEditSweep = (cfg: SweepConfig) => {
+    setSweepMasterAddress(cfg.masterAddress);
+    setSweepEnabled(cfg.enabled);
+    setSweepAutoClaimStaking(cfg.autoClaimStaking);
+    setSweepDividendWindowDays(cfg.dividendWindowDays);
+    setSweepMinAmount(cfg.minSweepAmountMec);
+    setSweepEditing(true);
+  };
 
   // Scheduler state
   const [schedWallets, setSchedWallets] = useState<Set<number>>(new Set());
@@ -129,6 +162,123 @@ export default function Agent() {
           Execute automated operations across selected wallets.
         </p>
       </div>
+
+      {/* Sweep Config Card */}
+      <Card className="border-border/50 bg-card">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-lg flex items-center gap-2">
+            <Shuffle className="h-5 w-5 text-primary" />
+            Auto-Sweep &amp; Staking Config
+            {sweepConfig?.enabled ? (
+              <Badge className="ml-2 bg-emerald-500/20 text-emerald-400 border-emerald-500/30 text-xs">ENABLED</Badge>
+            ) : (
+              <Badge variant="outline" className="ml-2 text-xs text-muted-foreground">DISABLED</Badge>
+            )}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {sweepEditing ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label>Master Sweep Address</Label>
+                  <Input
+                    value={sweepMasterAddress}
+                    onChange={e => setSweepMasterAddress(e.target.value)}
+                    className="font-mono text-xs"
+                    placeholder="me1..."
+                  />
+                  <p className="text-xs text-muted-foreground">All dividend and staking rewards will be swept to this address.</p>
+                </div>
+                <div className="space-y-2">
+                  <Label>Dividend Window (days 1–N of each month)</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={15}
+                    value={sweepDividendWindowDays}
+                    onChange={e => setSweepDividendWindowDays(Number(e.target.value))}
+                  />
+                  <p className="text-xs text-muted-foreground">Agent treats the first N days of each month as the dividend window and auto-sweeps.</p>
+                </div>
+                <div className="space-y-2">
+                  <Label>Min Sweep Amount (MEC)</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    step="0.1"
+                    value={sweepMinAmount}
+                    onChange={e => setSweepMinAmount(e.target.value)}
+                  />
+                </div>
+              </div>
+              <div className="space-y-4">
+                <div className="flex items-center justify-between rounded-lg border border-border/50 p-3">
+                  <div>
+                    <Label className="flex items-center gap-1"><Shuffle className="h-3.5 w-3.5" /> Auto-Sweep Enabled</Label>
+                    <p className="text-xs text-muted-foreground mt-0.5">Sweep verified wallets → master address during dividend window</p>
+                  </div>
+                  <Switch checked={sweepEnabled} onCheckedChange={setSweepEnabled} />
+                </div>
+                <div className="flex items-center justify-between rounded-lg border border-border/50 p-3">
+                  <div>
+                    <Label className="flex items-center gap-1"><Coins className="h-3.5 w-3.5 text-amber-400" /> Auto-Claim Staking Rewards</Label>
+                    <p className="text-xs text-muted-foreground mt-0.5">Claim block rewards before sweep on every run</p>
+                  </div>
+                  <Switch checked={sweepAutoClaimStaking} onCheckedChange={setSweepAutoClaimStaking} />
+                </div>
+                <div className="flex gap-2 mt-2">
+                  <Button
+                    className="flex-1 gap-2"
+                    disabled={saveSweepConfig.isPending}
+                    onClick={() => saveSweepConfig.mutate({
+                      masterAddress: sweepMasterAddress,
+                      enabled: sweepEnabled,
+                      autoClaimStaking: sweepAutoClaimStaking,
+                      dividendWindowDays: sweepDividendWindowDays,
+                      minSweepAmountMec: sweepMinAmount,
+                    })}
+                  >
+                    {saveSweepConfig.isPending ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                    Save Config
+                  </Button>
+                  <Button variant="outline" onClick={() => setSweepEditing(false)}>Cancel</Button>
+                </div>
+              </div>
+            </div>
+          ) : sweepConfig ? (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                <div className="bg-background/60 rounded-lg p-3 border border-border/40">
+                  <div className="text-xs text-muted-foreground mb-1 flex items-center gap-1"><ShieldCheck className="h-3 w-3" /> Master Address</div>
+                  <div className="font-mono text-xs font-semibold truncate" title={sweepConfig.masterAddress}>
+                    {sweepConfig.masterAddress.slice(0, 10)}…{sweepConfig.masterAddress.slice(-6)}
+                  </div>
+                </div>
+                <div className="bg-background/60 rounded-lg p-3 border border-border/40">
+                  <div className="text-xs text-muted-foreground mb-1">Dividend Window</div>
+                  <div className="font-semibold">Days 1–{sweepConfig.dividendWindowDays}</div>
+                </div>
+                <div className="bg-background/60 rounded-lg p-3 border border-border/40">
+                  <div className="text-xs text-muted-foreground mb-1 flex items-center gap-1"><Coins className="h-3 w-3 text-amber-400" /> Auto Claim Staking</div>
+                  <div className="font-semibold">{sweepConfig.autoClaimStaking ? "Yes" : "No"}</div>
+                </div>
+                <div className="bg-background/60 rounded-lg p-3 border border-border/40">
+                  <div className="text-xs text-muted-foreground mb-1">Min Sweep</div>
+                  <div className="font-semibold">{sweepConfig.minSweepAmountMec} MEC</div>
+                </div>
+              </div>
+              <Button size="sm" variant="outline" onClick={() => handleEditSweep(sweepConfig)} className="gap-2">
+                Edit Config
+              </Button>
+            </div>
+          ) : (
+            <div className="text-sm text-muted-foreground flex items-center gap-2">
+              <RefreshCw className="h-4 w-4 animate-spin" /> Loading sweep config…
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Scheduler Card */}
       <Card className={`border-2 ${isSchedulerRunning ? "border-primary/50 bg-primary/5" : "border-border/50 bg-card"}`}>

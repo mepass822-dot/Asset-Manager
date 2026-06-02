@@ -1,12 +1,21 @@
-import { useGetAgentStats, useListAgentLogs } from "@workspace/api-client-react";
+import { getAgentStats, getListAgentLogsQueryKey, getGetAgentStatsQueryKey, listAgentLogs } from "@workspace/api-client-react";
+import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Activity, CheckCircle, XCircle, Wallet, Clock } from "lucide-react";
+import { Activity, CheckCircle, XCircle, Wallet, Clock, ShieldCheck } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 
 export default function Dashboard() {
-  const { data: stats, isLoading: statsLoading, dataUpdatedAt } = useGetAgentStats({ query: { refetchInterval: 30_000 } });
-  const { data: logs, isLoading: logsLoading } = useListAgentLogs({ limit: 5 }, { query: { refetchInterval: 10_000 } });
+  const { data: stats, isLoading: statsLoading, dataUpdatedAt } = useQuery({
+    queryKey: getGetAgentStatsQueryKey(),
+    queryFn: () => getAgentStats(),
+    refetchInterval: 30_000,
+  });
+  const { data: logs, isLoading: logsLoading } = useQuery({
+    queryKey: getListAgentLogsQueryKey({ limit: 5 }),
+    queryFn: () => listAgentLogs({ limit: 5 }),
+    refetchInterval: 10_000,
+  });
 
   return (
     <div className="space-y-6">
@@ -34,7 +43,15 @@ export default function Dashboard() {
           </CardHeader>
           <CardContent>
             {statsLoading ? <Skeleton className="h-8 w-16" /> : (
-              <div className="text-2xl font-bold text-primary">{stats?.totalWallets || 0}</div>
+              <>
+                <div className="text-2xl font-bold text-primary">{stats?.totalWallets || 0}</div>
+                {stats?.verifiedWallets != null && (
+                  <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+                    <ShieldCheck className="h-3 w-3 text-emerald-400" />
+                    {stats.verifiedWallets} verified
+                  </p>
+                )}
+              </>
             )}
           </CardContent>
         </Card>

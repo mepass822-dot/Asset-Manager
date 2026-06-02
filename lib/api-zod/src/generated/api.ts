@@ -25,6 +25,8 @@ export const ListWalletsResponseItem = zod.object({
   "label": zod.string(),
   "address": zod.string(),
   "network": zod.string(),
+  "verified": zod.boolean().optional(),
+  "importSource": zod.string().optional(),
   "createdAt": zod.coerce.date()
 })
 export const ListWalletsResponse = zod.array(ListWalletsResponseItem)
@@ -60,6 +62,8 @@ export const GetWalletResponse = zod.object({
   "label": zod.string(),
   "address": zod.string(),
   "network": zod.string(),
+  "verified": zod.boolean().optional(),
+  "importSource": zod.string().optional(),
   "createdAt": zod.coerce.date()
 })
 
@@ -115,6 +119,98 @@ export const GetWalletTransactionsResponse = zod.object({
   "memo": zod.string(),
   "success": zod.boolean()
 }))
+})
+
+
+/**
+ * @summary Fetch pending (withdrawable) staking / block rewards for a wallet
+ */
+export const GetWalletStakingRewardsParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const GetWalletStakingRewardsResponse = zod.object({
+  "walletId": zod.number(),
+  "address": zod.string(),
+  "rewards": zod.array(zod.object({
+  "validatorAddress": zod.string(),
+  "amount": zod.string(),
+  "amountRaw": zod.string()
+})),
+  "totalMEC": zod.string(),
+  "totalUMec": zod.string()
+})
+
+
+/**
+ * @summary Import multiple wallets from a block of mnemonic phrases
+ */
+
+export const bulkImportWalletsBodyNetworkDefault = `mainnet`;
+
+export const BulkImportWalletsBody = zod.object({
+  "mnemonics": zod.string().describe('One mnemonic phrase per line (12 or 24 words each)'),
+  "password": zod.string().min(1),
+  "network": zod.string().default(bulkImportWalletsBodyNetworkDefault)
+})
+
+export const BulkImportWalletsResponse = zod.object({
+  "total": zod.number(),
+  "verified": zod.number(),
+  "unverified": zod.number(),
+  "skipped": zod.number(),
+  "wallets": zod.object({
+  "verified": zod.array(zod.object({
+  "address": zod.string().optional(),
+  "label": zod.string().optional(),
+  "walletId": zod.number().optional()
+})).optional(),
+  "unverified": zod.array(zod.object({
+  "address": zod.string().optional(),
+  "label": zod.string().optional(),
+  "walletId": zod.number().optional()
+})).optional()
+}).optional(),
+  "skippedDetails": zod.array(zod.object({
+  "reason": zod.string().optional(),
+  "phrase": zod.string().optional()
+})).optional()
+})
+
+
+/**
+ * @summary Get the current sweep configuration (master address, auto-sweep settings)
+ */
+export const GetSweepConfigResponse = zod.object({
+  "id": zod.number(),
+  "masterAddress": zod.string(),
+  "enabled": zod.boolean(),
+  "autoClaimStaking": zod.boolean(),
+  "dividendWindowDays": zod.number(),
+  "minSweepAmountMec": zod.string(),
+  "updatedAt": zod.coerce.date().optional()
+})
+
+
+/**
+ * @summary Update the sweep configuration
+ */
+export const UpdateSweepConfigBody = zod.object({
+  "masterAddress": zod.string().optional(),
+  "enabled": zod.boolean().optional(),
+  "autoClaimStaking": zod.boolean().optional(),
+  "dividendWindowDays": zod.number().optional(),
+  "minSweepAmountMec": zod.string().optional()
+})
+
+export const UpdateSweepConfigResponse = zod.object({
+  "id": zod.number(),
+  "masterAddress": zod.string(),
+  "enabled": zod.boolean(),
+  "autoClaimStaking": zod.boolean(),
+  "dividendWindowDays": zod.number(),
+  "minSweepAmountMec": zod.string(),
+  "updatedAt": zod.coerce.date().optional()
 })
 
 
@@ -249,6 +345,7 @@ export const ListAgentLogsResponse = zod.array(ListAgentLogsResponseItem)
  */
 export const GetAgentStatsResponse = zod.object({
   "totalWallets": zod.number(),
+  "verifiedWallets": zod.number().optional(),
   "totalWithdrawals": zod.number(),
   "successfulWithdrawals": zod.number(),
   "failedWithdrawals": zod.number(),

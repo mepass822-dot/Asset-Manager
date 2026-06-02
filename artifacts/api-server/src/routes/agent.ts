@@ -1,9 +1,9 @@
 import { Router } from "express";
 import { eq, desc, count, and, sql } from "drizzle-orm";
-import { db, walletsTable, agentLogsTable, rulesTable, whitelistTable } from "@workspace/db";
+import { db, walletsTable, agentLogsTable, rulesTable, whitelistTable, sweepConfigTable } from "@workspace/db";
 import { RunAgentBody, AgentChatBody, ListAgentLogsQueryParams } from "@workspace/api-zod";
 import { decryptMnemonic } from "../lib/crypto";
-import { queryBalance, sendMEC, getPrivateKeyHex } from "../lib/blockchain";
+import { queryBalance, queryStakingRewards, sendMEC, getPrivateKeyHex } from "../lib/blockchain";
 import { agentDecide, chatWithNvidia } from "../lib/nvidia";
 import { logger } from "../lib/logger";
 import { getSchedulerStatus, startScheduler, stopScheduler } from "../lib/scheduler";
@@ -11,6 +11,48 @@ import { getSchedulerStatus, startScheduler, stopScheduler } from "../lib/schedu
 const router = Router();
 
 const getNvidiaKey = () => process.env["NVIDIA_API_KEY"] ?? "";
+
+// ─── Sweep Config ─────────────────────────────────────────────────────────────
+
+async function getOrCreateSweepConfig() {
+  const rows = await db.select().from(sweepConfigTable).limit(1);
+  if (rows.length > 0) return rows[0];
+  const [created] = await db.insert(sweepConfigTable).values({}).returning();
+  return created;
+}
+
+router.get("/agent/sweep-config", async (_req, res): Promise<void> => {
+  const cfg = await getOrCreateSweepConfig();
+  res.json(cfg);
+});
+
+router.post("/agent/sweep-config", async (req, res): Promise<void> => {
+  const { masterAddress, enabled, autoClaimStaking, dividendWindowDays, minSweepAmountMec } = req.body as {
+    masterAddress?: string;
+    enabled?: boolean;
+    autoClaimStaking?: boolean;
+    dividendWindowDays?: number;
+    minSweepAmountMec?: string;
+  };
+
+  const existing = await getOrCreateSweepConfig();
+
+  const [updated] = await db
+    .update(sweepConfigTable)
+    .set({
+      masterAddress: masterAddress ?? existing.masterAddress,
+      enabled: enabled ?? existing.enabled,
+      autoClaimStaking: autoClaimStaking ?? existing.autoClaimStaking,
+      dividendWindowDays: dividendWindowDays ?? existing.dividendWindowDays,
+      minSweepAmountMec: minSweepAmountMec ?? existing.minSweepAmountMec,
+    })
+    .where(eq(sweepConfigTable.id, existing.id))
+    .returning();
+
+  res.json(updated);
+});
+
+// ─── Agent Run ────────────────────────────────────────────────────────────────
 
 router.post("/agent/run", async (req, res): Promise<void> => {
   const parsed = RunAgentBody.safeParse(req.body);
@@ -31,10 +73,26 @@ router.post("/agent/run", async (req, res): Promise<void> => {
     .from(rulesTable)
     .where(eq(rulesTable.enabled, true));
 
+  const sweepCfg = await getOrCreateSweepConfig();
+  const now = new Date();
+  const dayOfMonth = now.getUTCDate();
+  const inDividendWindow = dayOfMonth >= 1 && dayOfMonth <= sweepCfg.dividendWindowDays;
+
   const walletSummaries = await Promise.all(
     wallets.map(async (w) => {
       const bal = await queryBalance(w.address, w.network);
-      return { label: w.label, address: w.address, balance: `${bal.balance} ${bal.denom}` };
+      let stakingRewards = "0 MEC";
+      try {
+        const sr = await queryStakingRewards(w.address, w.network);
+        stakingRewards = `${sr.totalMEC} MEC`;
+      } catch { /* ignore */ }
+      return {
+        label: w.label,
+        address: w.address,
+        balance: `${bal.balance} ${bal.denom}`,
+        stakingRewards,
+        verified: w.verified,
+      };
     })
   );
 
@@ -61,12 +119,23 @@ router.post("/agent/run", async (req, res): Promise<void> => {
 
   let decisions: Awaited<ReturnType<typeof agentDecide>> = [];
   try {
-    decisions = await agentDecide(walletSummaries, rules.map((r) => ({
-      name: r.name,
-      ruleType: r.ruleType,
-      conditionJson: r.conditionJson,
-      actionJson: r.actionJson,
-    })), apiKey);
+    decisions = await agentDecide(
+      walletSummaries,
+      rules.map((r) => ({
+        name: r.name,
+        ruleType: r.ruleType,
+        conditionJson: r.conditionJson,
+        actionJson: r.actionJson,
+      })),
+      apiKey,
+      {
+        isDividendWindow: inDividendWindow,
+        dayOfMonth,
+        masterAddress: sweepCfg.masterAddress,
+        autoSweepEnabled: sweepCfg.enabled,
+        minSweepMEC: parseFloat(sweepCfg.minSweepAmountMec),
+      }
+    );
   } catch (err) {
     logger.error({ err }, "NVIDIA agent decision failed");
     const log = await db
@@ -88,6 +157,21 @@ router.post("/agent/run", async (req, res): Promise<void> => {
     const wallet = wallets.find((w) => w.label === decision.walletLabel);
     if (!wallet) continue;
 
+    // Hard guard: never execute transfers on unverified wallets
+    if (!wallet.verified) {
+      const log = await db
+        .insert(agentLogsTable)
+        .values({
+          walletId: wallet.id,
+          action: decision.action,
+          status: "blocked",
+          message: `[BLOCKED] Wallet "${wallet.label}" is UNVERIFIED — no transfers allowed. ${decision.reason}`,
+        })
+        .returning();
+      createdLogs.push(...log);
+      continue;
+    }
+
     if (dryRun) {
       const log = await db
         .insert(agentLogsTable)
@@ -107,12 +191,11 @@ router.post("/agent/run", async (req, res): Promise<void> => {
     try {
       const secret = decryptMnemonic(wallet.encryptedMnemonic, masterPassword);
 
-      // If the decision is a withdraw/send action and specifies a destination, broadcast it
-      const isTransfer = /withdraw|send|transfer/i.test(decision.action);
+      const isTransfer = /sweep|withdraw|send|transfer|claim/i.test(decision.action);
       const toAddress: string | undefined =
-        decision.destination ?? (decision as { toAddress?: string }).toAddress;
+        decision.toAddress ?? (decision as any).destination;
 
-      // Security guardrail: destination must be on the whitelist
+      // Security guardrail: destination must be on whitelist (if whitelist is non-empty)
       if (isTransfer && toAddress && whitelistAddresses.size > 0 && !whitelistAddresses.has(toAddress)) {
         const log = await db
           .insert(agentLogsTable)
@@ -145,7 +228,6 @@ router.post("/agent/run", async (req, res): Promise<void> => {
           .returning();
         createdLogs.push(...log);
       } else {
-        // Non-transfer action (stake, review, etc.) — log as executed without broadcasting
         const log = await db
           .insert(agentLogsTable)
           .values({
@@ -236,12 +318,23 @@ router.post("/agent/chat", async (req, res): Promise<void> => {
       label: walletsTable.label,
       address: walletsTable.address,
       network: walletsTable.network,
+      verified: walletsTable.verified,
     }).from(walletsTable);
     context = `\n\nWallet context:\n${JSON.stringify(wallets, null, 2)}`;
   }
 
-  const systemPrompt = `You are an AI assistant for the Meta Earth Wallet Agent — an autonomous system that manages multiple MEC (Meta Earth Coin) cryptocurrency wallets.
-You help the user understand their wallets, plan withdrawals, configure automation rules, and monitor activity.
+  const systemPrompt = `You are an AI assistant for the Meta Earth Wallet Agent — an autonomous system that manages multiple MEC (Meta Earth Coin) cryptocurrency wallets on the me-chain blockchain.
+
+Chain facts: 1 MEC = 100,000,000 umec, addresses use "me1..." prefix, coin type 118 (Cosmos standard), mainnet REST at port 11317.
+
+You help the user understand their wallets, plan withdrawals (including monthly dividend sweeps to the master address), configure automation rules, manage staking rewards, and monitor activity.
+
+Key features of this system:
+- Monthly dividends arrive randomly in days 1-7 of each month — the agent monitors and sweeps automatically
+- Staking/block rewards can be claimed and swept to the master address
+- Verified wallets are on-chain active accounts; unverified wallets are monitored only
+- Sweep destination: me1h4fc80gz38ms8tejlj37rxmf7uh6xe25fk0tfx (master address)
+
 Be concise, professional, and helpful. When suggesting actions, be specific.${context}`;
 
   try {
@@ -254,9 +347,11 @@ Be concise, professional, and helpful. When suggesting actions, be specific.${co
     );
 
     const suggestedActions: string[] = [];
+    if (reply.toLowerCase().includes("sweep") || reply.toLowerCase().includes("dividend")) suggestedActions.push("Configure sweep settings");
     if (reply.toLowerCase().includes("withdraw")) suggestedActions.push("Run agent with withdrawal rule");
     if (reply.toLowerCase().includes("rule")) suggestedActions.push("Create automation rule");
     if (reply.toLowerCase().includes("balance")) suggestedActions.push("Check wallet balances");
+    if (reply.toLowerCase().includes("staking") || reply.toLowerCase().includes("reward")) suggestedActions.push("Check staking rewards");
 
     res.json({ reply, suggestedActions });
   } catch (err) {
@@ -297,6 +392,10 @@ router.get("/agent/logs", async (req, res): Promise<void> => {
 
 router.get("/agent/stats", async (_req, res): Promise<void> => {
   const [walletCount] = await db.select({ count: count() }).from(walletsTable);
+  const [verifiedCount] = await db
+    .select({ count: count() })
+    .from(walletsTable)
+    .where(eq(walletsTable.verified, true));
   const [ruleCount] = await db
     .select({ count: count() })
     .from(rulesTable)
@@ -326,6 +425,7 @@ router.get("/agent/stats", async (_req, res): Promise<void> => {
 
   res.json({
     totalWallets: Number(walletCount?.count ?? 0),
+    verifiedWallets: Number(verifiedCount?.count ?? 0),
     totalWithdrawals: total,
     successfulWithdrawals: successful,
     failedWithdrawals: total - successful,

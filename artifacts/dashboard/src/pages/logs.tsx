@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { useListAgentLogs, useListWallets } from "@workspace/api-client-react";
+import { useListWallets, listAgentLogs, getListAgentLogsQueryKey } from "@workspace/api-client-react";
+import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -9,11 +10,13 @@ import { Badge } from "@/components/ui/badge";
 export default function Logs() {
   const [walletId, setWalletId] = useState<string>("all");
   
-  const { data: wallets } = useListWallets(undefined, { query: { refetchInterval: 30_000 } });
-  const { data: logs, isLoading, dataUpdatedAt } = useListAgentLogs(
-    walletId !== "all" ? { walletId: parseInt(walletId) } : undefined,
-    { query: { refetchInterval: 10_000 } }
-  );
+  const { data: wallets } = useListWallets();
+  const logsParams = walletId !== "all" ? { walletId: parseInt(walletId) } : undefined;
+  const { data: logs, isLoading, dataUpdatedAt } = useQuery({
+    queryKey: getListAgentLogsQueryKey(logsParams),
+    queryFn: () => listAgentLogs(logsParams),
+    refetchInterval: 10_000,
+  });
 
   return (
     <div className="space-y-6">

@@ -151,6 +151,78 @@ paths:
         "404":
           description: Not found
 
+  /wallets/{id}/staking-rewards:
+    get:
+      operationId: getWalletStakingRewards
+      tags: [wallets]
+      summary: Fetch pending (withdrawable) staking / block rewards for a wallet
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Staking rewards
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WalletStakingRewards"
+        "404":
+          description: Not found
+
+  /wallets/bulk-import:
+    post:
+      operationId: bulkImportWallets
+      tags: [wallets]
+      summary: Import multiple wallets from a block of mnemonic phrases
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BulkImportInput"
+      responses:
+        "200":
+          description: Import summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BulkImportResult"
+        "400":
+          description: Invalid input
+
+  /agent/sweep-config:
+    get:
+      operationId: getSweepConfig
+      tags: [agent]
+      summary: Get the current sweep configuration (master address, auto-sweep settings)
+      responses:
+        "200":
+          description: Sweep config
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SweepConfig"
+    post:
+      operationId: updateSweepConfig
+      tags: [agent]
+      summary: Update the sweep configuration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SweepConfigInput"
+      responses:
+        "200":
+          description: Updated sweep config
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SweepConfig"
+
   /agent/run:
     post:
       operationId: runAgent
@@ -418,6 +490,10 @@ components:
           type: string
         network:
           type: string
+        verified:
+          type: boolean
+        importSource:
+          type: string
         createdAt:
           type: string
           format: date-time
@@ -534,6 +610,8 @@ components:
       properties:
         totalWallets:
           type: integer
+        verifiedWallets:
+          type: integer
         totalWithdrawals:
           type: integer
         successfulWithdrawals:
@@ -544,6 +622,126 @@ components:
           type: integer
         lastRunAt:
           type: ["string", "null"]
+
+    WalletStakingRewards:
+      type: object
+      required: [walletId, address, rewards, totalMEC, totalUMec]
+      properties:
+        walletId:
+          type: integer
+        address:
+          type: string
+        rewards:
+          type: array
+          items:
+            type: object
+            required: [validatorAddress, amount, amountRaw]
+            properties:
+              validatorAddress:
+                type: string
+              amount:
+                type: string
+              amountRaw:
+                type: string
+        totalMEC:
+          type: string
+        totalUMec:
+          type: string
+
+    BulkImportInput:
+      type: object
+      required: [mnemonics, password]
+      properties:
+        mnemonics:
+          type: string
+          description: One mnemonic phrase per line (12 or 24 words each)
+        password:
+          type: string
+          minLength: 1
+        network:
+          type: string
+          default: mainnet
+
+    BulkImportResult:
+      type: object
+      required: [total, verified, unverified, skipped]
+      properties:
+        total:
+          type: integer
+        verified:
+          type: integer
+        unverified:
+          type: integer
+        skipped:
+          type: integer
+        wallets:
+          type: object
+          properties:
+            verified:
+              type: array
+              items:
+                type: object
+                properties:
+                  address:
+                    type: string
+                  label:
+                    type: string
+                  walletId:
+                    type: integer
+            unverified:
+              type: array
+              items:
+                type: object
+                properties:
+                  address:
+                    type: string
+                  label:
+                    type: string
+                  walletId:
+                    type: integer
+        skippedDetails:
+          type: array
+          items:
+            type: object
+            properties:
+              reason:
+                type: string
+              phrase:
+                type: string
+
+    SweepConfig:
+      type: object
+      required: [id, masterAddress, enabled, autoClaimStaking, dividendWindowDays, minSweepAmountMec]
+      properties:
+        id:
+          type: integer
+        masterAddress:
+          type: string
+        enabled:
+          type: boolean
+        autoClaimStaking:
+          type: boolean
+        dividendWindowDays:
+          type: integer
+        minSweepAmountMec:
+          type: string
+        updatedAt:
+          type: string
+          format: date-time
+
+    SweepConfigInput:
+      type: object
+      properties:
+        masterAddress:
+          type: string
+        enabled:
+          type: boolean
+        autoClaimStaking:
+          type: boolean
+        dividendWindowDays:
+          type: integer
+        minSweepAmountMec:
+          type: string
 
     Rule:
       type: object

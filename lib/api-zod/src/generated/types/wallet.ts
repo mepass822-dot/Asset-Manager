@@ -11,5 +11,7 @@ export interface Wallet {
   label: string;
   address: string;
   network: string;
+  verified?: boolean;
+  importSource?: string;
   createdAt: Date;
 }

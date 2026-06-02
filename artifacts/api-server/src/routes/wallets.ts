@@ -8,7 +8,20 @@ import {
   GetWalletBalanceParams,
 } from "@workspace/api-zod";
 import { encryptMnemonic, decryptMnemonic } from "../lib/crypto";
-import { queryBalance, queryTransactions, deriveMECAddressAsync, deriveMultipleAccounts, deriveAddressFromPrivateKey, PRIVATE_KEY_PREFIX, sendMEC, getPrivateKeyHex, normalizeMeAddress, gcAddressFromPrivkeyHex } from "../lib/blockchain";
+import {
+  queryBalance,
+  queryTransactions,
+  queryStakingRewards,
+  deriveMECAddressAsync,
+  deriveMultipleAccounts,
+  deriveAddressFromPrivateKey,
+  isAddressVerifiedOnChain,
+  PRIVATE_KEY_PREFIX,
+  sendMEC,
+  getPrivateKeyHex,
+  normalizeMeAddress,
+  gcAddressFromPrivkeyHex,
+} from "../lib/blockchain";
 import { whitelistTable } from "@workspace/db";
 
 const meToGcAddress = normalizeMeAddress;
@@ -23,12 +36,13 @@ router.get("/wallets", async (req, res): Promise<void> => {
       address: walletsTable.address,
       network: walletsTable.network,
       hdIndex: walletsTable.hdIndex,
+      verified: walletsTable.verified,
+      importSource: walletsTable.importSource,
       createdAt: walletsTable.createdAt,
     })
     .from(walletsTable)
     .orderBy(walletsTable.createdAt);
 
-  // Attach the normalized me1... address alongside each wallet
   const walletsWithGc = wallets.map((w) => {
     let gcAddress: string | null = null;
     try { gcAddress = normalizeMeAddress(w.address); } catch { /* ignore */ }
@@ -78,13 +92,14 @@ router.post("/wallets", async (req, res): Promise<void> => {
 
   const [wallet] = await db
     .insert(walletsTable)
-    .values({ label, address, encryptedMnemonic, network, hdIndex })
+    .values({ label, address, encryptedMnemonic, network, hdIndex, verified: true, importSource: "manual" })
     .returning({
       id: walletsTable.id,
       label: walletsTable.label,
       address: walletsTable.address,
       network: walletsTable.network,
       hdIndex: walletsTable.hdIndex,
+      verified: walletsTable.verified,
       createdAt: walletsTable.createdAt,
     });
 
@@ -106,6 +121,8 @@ router.get("/wallets/:id", async (req, res): Promise<void> => {
       address: walletsTable.address,
       network: walletsTable.network,
       hdIndex: walletsTable.hdIndex,
+      verified: walletsTable.verified,
+      importSource: walletsTable.importSource,
       createdAt: walletsTable.createdAt,
     })
     .from(walletsTable)
@@ -150,6 +167,21 @@ router.get("/wallets/:id/transactions", async (req, res): Promise<void> => {
   const transactions = await queryTransactions(wallet.address, wallet.network ?? "mainnet", limit);
 
   res.json({ walletId: wallet.id, address: wallet.address, transactions });
+});
+
+router.get("/wallets/:id/staking-rewards", async (req, res): Promise<void> => {
+  const id = parseInt(req.params.id, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+
+  const [wallet] = await db.select().from(walletsTable).where(eq(walletsTable.id, id));
+  if (!wallet) { res.status(404).json({ error: "Wallet not found" }); return; }
+
+  try {
+    const rewards = await queryStakingRewards(wallet.address, wallet.network ?? "mainnet");
+    res.json({ walletId: wallet.id, address: wallet.address, ...rewards });
+  } catch (err) {
+    res.status(500).json({ error: `Failed to query staking rewards: ${err instanceof Error ? err.message : String(err)}` });
+  }
 });
 
 router.get("/wallets/:id/balance", async (req, res): Promise<void> => {
@@ -236,7 +268,6 @@ router.post("/wallets/:id/send", async (req, res): Promise<void> => {
     return;
   }
 
-  // Verify the derived key actually corresponds to the stored address
   const storedGc = meToGcAddress(wallet.address);
   const derivedGc = await gcAddressFromPrivkeyHex(privkeyHex);
   if (storedGc !== derivedGc) {
@@ -247,17 +278,16 @@ router.post("/wallets/:id/send", async (req, res): Promise<void> => {
     return;
   }
 
-  // Pre-flight: check on-chain balance before attempting the send
   try {
     const bal = await queryBalance(wallet.address, wallet.network ?? "mainnet");
     const numBal = parseFloat(bal.balance);
     if (!isNaN(numBal) && numBal === 0) {
       res.status(400).json({
-        error: `Wallet has no on-chain balance. The address ${wallet.address} (on-chain: ${storedGc}) has 0 MEC on the gc_20-1 chain. Please send MEC to this address before initiating a transfer.`,
+        error: `Wallet has no on-chain balance. The address ${wallet.address} has 0 MEC. Please send MEC to this address before initiating a transfer.`,
       });
       return;
     }
-  } catch { /* if balance check fails, proceed and let the chain error speak */ }
+  } catch { /* if balance check fails, proceed */ }
 
   try {
     const result = await sendMEC({ privkeyHex, fromAddress: wallet.address, toAddress, amountMEC, network: wallet.network ?? "mainnet", memo });
@@ -266,20 +296,136 @@ router.post("/wallets/:id/send", async (req, res): Promise<void> => {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     req.log.error({ walletId: id, err: msg }, "Send failed");
-
-    // Translate common chain errors into plain English
     if (msg.includes("does not exist on chain") || msg.includes("not found")) {
-      res.status(400).json({
-        error: `The wallet address has no on-chain history. Send MEC to ${wallet.address} (on-chain gc1 address: ${storedGc}) first, then retry the transfer.`,
-      });
+      res.status(400).json({ error: `The wallet address has no on-chain history. Send MEC to ${wallet.address} first, then retry.` });
       return;
     }
     if (msg.includes("insufficient funds")) {
-      res.status(400).json({ error: `Insufficient funds. Check that your wallet has enough MEC to cover the amount plus the 1 GC network fee.` });
+      res.status(400).json({ error: `Insufficient funds. Check that your wallet has enough MEC to cover the amount plus the 0.0001 MEC network fee.` });
       return;
     }
     res.status(500).json({ error: msg });
   }
+});
+
+// ─── Bulk Mnemonic Import ──────────────────────────────────────────────────
+
+/**
+ * POST /api/wallets/bulk-import
+ * Accepts a block of text containing one mnemonic phrase per line (12 or 24 words).
+ * For each phrase: derives the ME address, checks on-chain verification status,
+ * and imports into the DB. Verified and unverified wallets are stored separately
+ * and clearly labelled — they are never mixed in the active pool.
+ *
+ * Body: { mnemonics: string, password: string, network?: string }
+ *   - mnemonics: raw text with one phrase per line (or comma/semicolon separated)
+ *   - password: encryption password for storing the secrets
+ *   - network: "mainnet" (default) | "testnet"
+ */
+router.post("/wallets/bulk-import", async (req, res): Promise<void> => {
+  const { mnemonics, password, network = "mainnet" } = req.body as {
+    mnemonics: string;
+    password: string;
+    network?: string;
+  };
+
+  if (!mnemonics || typeof mnemonics !== "string") {
+    res.status(400).json({ error: "mnemonics (text) is required" });
+    return;
+  }
+  if (!password) {
+    res.status(400).json({ error: "password is required" });
+    return;
+  }
+
+  // Parse: split on newlines; also handle comma/semicolon as delimiters
+  const lines = mnemonics
+    .split(/[\n;]/)
+    .map((l) => l.replace(/,/g, " ").trim())
+    .filter(Boolean);
+
+  // A valid BIP39 mnemonic is either 12 or 24 space-separated words
+  const isValidMnemonic = (s: string) => {
+    const words = s.trim().split(/\s+/);
+    return words.length === 12 || words.length === 24;
+  };
+
+  const phrases = lines.filter(isValidMnemonic);
+  if (phrases.length === 0) {
+    res.status(400).json({ error: "No valid mnemonic phrases found (must be 12 or 24 words each, one per line)" });
+    return;
+  }
+
+  const results = {
+    verified: [] as Array<{ address: string; label: string; walletId: number }>,
+    unverified: [] as Array<{ address: string; label: string; walletId: number }>,
+    skipped: [] as Array<{ reason: string; phrase: string }>,
+  };
+
+  for (let i = 0; i < phrases.length; i++) {
+    const phrase = phrases[i];
+    try {
+      // Derive address
+      const derived = await deriveMECAddressAsync(phrase, 0);
+      const address = derived.address;
+
+      // Check for duplicate
+      const existing = await db
+        .select({ id: walletsTable.id })
+        .from(walletsTable)
+        .where(eq(walletsTable.address, address));
+      if (existing.length > 0) {
+        results.skipped.push({ reason: "duplicate", phrase: `${phrase.slice(0, 20)}...` });
+        continue;
+      }
+
+      // Check on-chain verification status
+      const verified = await isAddressVerifiedOnChain(address, network);
+
+      const label = verified
+        ? `Import #${i + 1} (${address.slice(0, 10)})`
+        : `Import #${i + 1} [UNVERIFIED] (${address.slice(0, 10)})`;
+
+      const encryptedMnemonic = encryptMnemonic(phrase, password);
+
+      const [inserted] = await db
+        .insert(walletsTable)
+        .values({
+          label,
+          address,
+          encryptedMnemonic,
+          network,
+          hdIndex: 0,
+          verified,
+          importSource: "bulk_import",
+        })
+        .returning({ id: walletsTable.id, address: walletsTable.address, label: walletsTable.label });
+
+      if (verified) {
+        results.verified.push({ address: inserted.address, label: inserted.label, walletId: inserted.id });
+      } else {
+        results.unverified.push({ address: inserted.address, label: inserted.label, walletId: inserted.id });
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      results.skipped.push({ reason: msg, phrase: `${phrase.slice(0, 20)}...` });
+    }
+  }
+
+  req.log.info({
+    verified: results.verified.length,
+    unverified: results.unverified.length,
+    skipped: results.skipped.length,
+  }, "Bulk mnemonic import complete");
+
+  res.json({
+    total: phrases.length,
+    verified: results.verified.length,
+    unverified: results.unverified.length,
+    skipped: results.skipped.length,
+    wallets: { verified: results.verified, unverified: results.unverified },
+    skippedDetails: results.skipped,
+  });
 });
 
 // Preview derived accounts from a mnemonic without saving them
@@ -332,7 +478,6 @@ router.post("/wallets/import-extension", async (req, res): Promise<void> => {
       let secretToEncrypt: string;
 
       if (w.privateKey) {
-        // Private key import path
         try {
           const derived = await deriveAddressFromPrivateKey(w.privateKey);
           address = derived.address;
@@ -344,9 +489,6 @@ router.post("/wallets/import-extension", async (req, res): Promise<void> => {
           } else { skipped++; continue; }
         }
       } else {
-        // Mnemonic import path.
-        // Always prefer the address the extension exported — it knows the exact
-        // HD path and coin type it used.  Only derive if no address was provided.
         if (w.address) {
           address = w.address;
           secretToEncrypt = w.mnemonic!;
@@ -377,6 +519,8 @@ router.post("/wallets/import-extension", async (req, res): Promise<void> => {
         encryptedMnemonic,
         network: w.network || "mainnet",
         hdIndex,
+        verified: true,
+        importSource: "extension",
       });
       imported++;
     } catch {

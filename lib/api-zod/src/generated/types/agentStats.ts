@@ -8,6 +8,7 @@
 
 export interface AgentStats {
   totalWallets: number;
+  verifiedWallets?: number;
   totalWithdrawals: number;
   successfulWithdrawals: number;
   failedWithdrawals: number;

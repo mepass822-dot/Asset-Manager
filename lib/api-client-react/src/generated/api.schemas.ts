@@ -14,6 +14,8 @@ export interface Wallet {
   label: string;
   address: string;
   network: string;
+  verified?: boolean;
+  importSource?: string;
   createdAt: string;
 }
 
@@ -79,12 +81,84 @@ export interface AgentChatResult {
 
 export interface AgentStats {
   totalWallets: number;
+  verifiedWallets?: number;
   totalWithdrawals: number;
   successfulWithdrawals: number;
   failedWithdrawals: number;
   activeRules: number;
   /** @nullable */
   lastRunAt?: string | null;
+}
+
+export type WalletStakingRewardsRewardsItem = {
+  validatorAddress: string;
+  amount: string;
+  amountRaw: string;
+};
+
+export interface WalletStakingRewards {
+  walletId: number;
+  address: string;
+  rewards: WalletStakingRewardsRewardsItem[];
+  totalMEC: string;
+  totalUMec: string;
+}
+
+export interface BulkImportInput {
+  /** One mnemonic phrase per line (12 or 24 words each) */
+  mnemonics: string;
+  /** @minLength 1 */
+  password: string;
+  network?: string;
+}
+
+export type BulkImportResultWalletsVerifiedItem = {
+  address?: string;
+  label?: string;
+  walletId?: number;
+};
+
+export type BulkImportResultWalletsUnverifiedItem = {
+  address?: string;
+  label?: string;
+  walletId?: number;
+};
+
+export type BulkImportResultWallets = {
+  verified?: BulkImportResultWalletsVerifiedItem[];
+  unverified?: BulkImportResultWalletsUnverifiedItem[];
+};
+
+export type BulkImportResultSkippedDetailsItem = {
+  reason?: string;
+  phrase?: string;
+};
+
+export interface BulkImportResult {
+  total: number;
+  verified: number;
+  unverified: number;
+  skipped: number;
+  wallets?: BulkImportResultWallets;
+  skippedDetails?: BulkImportResultSkippedDetailsItem[];
+}
+
+export interface SweepConfig {
+  id: number;
+  masterAddress: string;
+  enabled: boolean;
+  autoClaimStaking: boolean;
+  dividendWindowDays: number;
+  minSweepAmountMec: string;
+  updatedAt?: string;
+}
+
+export interface SweepConfigInput {
+  masterAddress?: string;
+  enabled?: boolean;
+  autoClaimStaking?: boolean;
+  dividendWindowDays?: number;
+  minSweepAmountMec?: string;
 }
 
 export interface Rule {

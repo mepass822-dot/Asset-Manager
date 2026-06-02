@@ -26,6 +26,8 @@ import type {
   AgentRunInput,
   AgentRunResult,
   AgentStats,
+  BulkImportInput,
+  BulkImportResult,
   GetWalletTransactionsParams,
   HealthStatus,
   ListAgentLogsParams,
@@ -34,9 +36,12 @@ import type {
   RuleUpdate,
   SchedulerInput,
   SchedulerStatus,
+  SweepConfig,
+  SweepConfigInput,
   Wallet,
   WalletBalance,
   WalletInput,
+  WalletStakingRewards,
   WalletTransactionList,
   WhitelistEntry,
   WhitelistInput
@@ -592,6 +597,302 @@ export function useGetWalletTransactions<TData = Awaited<ReturnType<typeof getWa
 
 
 
+
+export const getGetWalletStakingRewardsUrl = (id: number,) => {
+
+
+
+
+  return `/api/wallets/${id}/staking-rewards`
+}
+
+/**
+ * @summary Fetch pending (withdrawable) staking / block rewards for a wallet
+ */
+export const getWalletStakingRewards = async (id: number, options?: RequestInit): Promise<WalletStakingRewards> => {
+
+  return customFetch<WalletStakingRewards>(getGetWalletStakingRewardsUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetWalletStakingRewardsQueryKey = (id: number,) => {
+    return [
+    `/api/wallets/${id}/staking-rewards`
+    ] as const;
+    }
+
+
+export const getGetWalletStakingRewardsQueryOptions = <TData = Awaited<ReturnType<typeof getWalletStakingRewards>>, TError = ErrorType<void>>(id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getWalletStakingRewards>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetWalletStakingRewardsQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getWalletStakingRewards>>> = ({ signal }) => getWalletStakingRewards(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(id), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getWalletStakingRewards>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetWalletStakingRewardsQueryResult = NonNullable<Awaited<ReturnType<typeof getWalletStakingRewards>>>
+export type GetWalletStakingRewardsQueryError = ErrorType<void>
+
+
+/**
+ * @summary Fetch pending (withdrawable) staking / block rewards for a wallet
+ */
+
+export function useGetWalletStakingRewards<TData = Awaited<ReturnType<typeof getWalletStakingRewards>>, TError = ErrorType<void>>(
+ id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getWalletStakingRewards>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetWalletStakingRewardsQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getBulkImportWalletsUrl = () => {
+
+
+
+
+  return `/api/wallets/bulk-import`
+}
+
+/**
+ * @summary Import multiple wallets from a block of mnemonic phrases
+ */
+export const bulkImportWallets = async (bulkImportInput: BulkImportInput, options?: RequestInit): Promise<BulkImportResult> => {
+
+  return customFetch<BulkImportResult>(getBulkImportWalletsUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      bulkImportInput,)
+  }
+);}
+
+
+
+
+export const getBulkImportWalletsMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof bulkImportWallets>>, TError,{data: BodyType<BulkImportInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof bulkImportWallets>>, TError,{data: BodyType<BulkImportInput>}, TContext> => {
+
+const mutationKey = ['bulkImportWallets'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof bulkImportWallets>>, {data: BodyType<BulkImportInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  bulkImportWallets(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type BulkImportWalletsMutationResult = NonNullable<Awaited<ReturnType<typeof bulkImportWallets>>>
+    export type BulkImportWalletsMutationBody = BodyType<BulkImportInput>
+    export type BulkImportWalletsMutationError = ErrorType<void>
+
+    /**
+ * @summary Import multiple wallets from a block of mnemonic phrases
+ */
+export const useBulkImportWallets = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof bulkImportWallets>>, TError,{data: BodyType<BulkImportInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof bulkImportWallets>>,
+        TError,
+        {data: BodyType<BulkImportInput>},
+        TContext
+      > => {
+      return useMutation(getBulkImportWalletsMutationOptions(options));
+    }
+
+export const getGetSweepConfigUrl = () => {
+
+
+
+
+  return `/api/agent/sweep-config`
+}
+
+/**
+ * @summary Get the current sweep configuration (master address, auto-sweep settings)
+ */
+export const getSweepConfig = async ( options?: RequestInit): Promise<SweepConfig> => {
+
+  return customFetch<SweepConfig>(getGetSweepConfigUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetSweepConfigQueryKey = () => {
+    return [
+    `/api/agent/sweep-config`
+    ] as const;
+    }
+
+
+export const getGetSweepConfigQueryOptions = <TData = Awaited<ReturnType<typeof getSweepConfig>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getSweepConfig>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetSweepConfigQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getSweepConfig>>> = ({ signal }) => getSweepConfig({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getSweepConfig>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetSweepConfigQueryResult = NonNullable<Awaited<ReturnType<typeof getSweepConfig>>>
+export type GetSweepConfigQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get the current sweep configuration (master address, auto-sweep settings)
+ */
+
+export function useGetSweepConfig<TData = Awaited<ReturnType<typeof getSweepConfig>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getSweepConfig>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetSweepConfigQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getUpdateSweepConfigUrl = () => {
+
+
+
+
+  return `/api/agent/sweep-config`
+}
+
+/**
+ * @summary Update the sweep configuration
+ */
+export const updateSweepConfig = async (sweepConfigInput: SweepConfigInput, options?: RequestInit): Promise<SweepConfig> => {
+
+  return customFetch<SweepConfig>(getUpdateSweepConfigUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      sweepConfigInput,)
+  }
+);}
+
+
+
+
+export const getUpdateSweepConfigMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateSweepConfig>>, TError,{data: BodyType<SweepConfigInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateSweepConfig>>, TError,{data: BodyType<SweepConfigInput>}, TContext> => {
+
+const mutationKey = ['updateSweepConfig'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateSweepConfig>>, {data: BodyType<SweepConfigInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  updateSweepConfig(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateSweepConfigMutationResult = NonNullable<Awaited<ReturnType<typeof updateSweepConfig>>>
+    export type UpdateSweepConfigMutationBody = BodyType<SweepConfigInput>
+    export type UpdateSweepConfigMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Update the sweep configuration
+ */
+export const useUpdateSweepConfig = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateSweepConfig>>, TError,{data: BodyType<SweepConfigInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateSweepConfig>>,
+        TError,
+        {data: BodyType<SweepConfigInput>},
+        TContext
+      > => {
+      return useMutation(getUpdateSweepConfigMutationOptions(options));
+    }
 
 export const getRunAgentUrl = () => {
 

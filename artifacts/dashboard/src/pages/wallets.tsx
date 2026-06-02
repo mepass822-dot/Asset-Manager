@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useListWallets, useCreateWallet, useDeleteWallet, useGetWalletBalance, useGetWalletTransactions, getListWalletsQueryKey } from "@workspace/api-client-react";
+import { useListWallets, useCreateWallet, useDeleteWallet, useGetWalletBalance, useGetWalletTransactions, useGetWalletStakingRewards, useBulkImportWallets, getListWalletsQueryKey } from "@workspace/api-client-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Plus, Trash2, Wallet as WalletIcon, Network, Download, Puzzle, ChevronRight, ChevronDown, Copy, Check, Hash, Layers, KeyRound, BookText, ArrowUpRight, ArrowDownLeft, History, ExternalLink, RefreshCw } from "lucide-react";
+import { Plus, Trash2, Wallet as WalletIcon, Network, Download, Puzzle, ChevronRight, ChevronDown, Copy, Check, Hash, Layers, KeyRound, BookText, ArrowUpRight, ArrowDownLeft, History, ExternalLink, RefreshCw, ShieldCheck, ShieldOff, Upload, Coins } from "lucide-react";
 import { SendDialog } from "@/components/send-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -360,6 +360,196 @@ function ExtensionImportDialog({ onImported }: { onImported: () => void }) {
   );
 }
 
+// ─── Bulk import dialog ───────────────────────────────────────────────────────
+function BulkImportDialog({ onImported }: { onImported: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [mnemonics, setMnemonics] = useState("");
+  const [password, setPassword] = useState("");
+  const [network, setNetwork] = useState("mainnet");
+  const [result, setResult] = useState<any>(null);
+  const { toast } = useToast();
+  const bulkImport = useBulkImportWallets();
+
+  const handleImport = () => {
+    setResult(null);
+    bulkImport.mutate(
+      { data: { mnemonics, password, network } },
+      {
+        onSuccess: (data) => {
+          setResult(data);
+          onImported();
+          toast({
+            title: "Bulk Import Complete",
+            description: `${data.verified} verified, ${data.unverified} unverified, ${data.skipped} skipped.`,
+          });
+        },
+        onError: () => toast({ title: "Bulk Import Failed", variant: "destructive" }),
+      }
+    );
+  };
+
+  const handleClose = (v: boolean) => {
+    setOpen(v);
+    if (!v) { setMnemonics(""); setPassword(""); setResult(null); }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={handleClose}>
+      <DialogTrigger asChild>
+        <Button variant="outline" className="gap-2"><Upload className="h-4 w-4" /> Bulk Import</Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-[520px]">
+        <DialogHeader>
+          <DialogTitle>Bulk Mnemonic Import</DialogTitle>
+          <DialogDescription>
+            Paste one mnemonic phrase per line (12 or 24 words each). Each phrase will be verified on-chain and stored as verified or unverified.
+          </DialogDescription>
+        </DialogHeader>
+        {result ? (
+          <div className="space-y-4 py-2">
+            <div className="grid grid-cols-3 gap-3 text-center">
+              <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3">
+                <div className="text-2xl font-bold text-emerald-400">{result.verified}</div>
+                <div className="text-xs text-muted-foreground mt-1 flex items-center justify-center gap-1">
+                  <ShieldCheck className="h-3 w-3 text-emerald-400" /> Verified
+                </div>
+              </div>
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
+                <div className="text-2xl font-bold text-amber-400">{result.unverified}</div>
+                <div className="text-xs text-muted-foreground mt-1 flex items-center justify-center gap-1">
+                  <ShieldOff className="h-3 w-3 text-amber-400" /> Unverified
+                </div>
+              </div>
+              <div className="rounded-lg border border-border/40 bg-muted/30 p-3">
+                <div className="text-2xl font-bold text-muted-foreground">{result.skipped}</div>
+                <div className="text-xs text-muted-foreground mt-1">Skipped</div>
+              </div>
+            </div>
+            {result.skippedDetails?.length > 0 && (
+              <div className="rounded-md border border-border/40 bg-muted/20 p-3 max-h-[120px] overflow-auto">
+                <p className="text-xs font-medium text-muted-foreground mb-2">Skipped reasons:</p>
+                {result.skippedDetails.map((s: any, i: number) => (
+                  <div key={i} className="text-xs text-muted-foreground/70">{s.reason}: {s.phrase?.slice(0, 20)}…</div>
+                ))}
+              </div>
+            )}
+            <Button className="w-full" onClick={() => handleClose(false)}>Done</Button>
+          </div>
+        ) : (
+          <div className="space-y-4 py-2">
+            <div className="grid gap-2">
+              <Label>Mnemonic Phrases <span className="text-muted-foreground">(one per line)</span></Label>
+              <textarea
+                className="w-full h-40 bg-background border border-border rounded-md px-3 py-2 text-sm font-mono resize-none outline-none focus:border-primary placeholder:text-muted-foreground"
+                placeholder={"word1 word2 word3 ... word12\nword1 word2 word3 ... word24\n..."}
+                value={mnemonics}
+                onChange={(e) => setMnemonics(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Each non-empty line is treated as one wallet. Duplicates are skipped. On-chain verification confirms the address exists on the ME Hub.
+              </p>
+            </div>
+            <div className="grid gap-2">
+              <Label>Encryption Password</Label>
+              <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Securely encrypts all imported keys" />
+            </div>
+            <div className="grid gap-2">
+              <Label>Network</Label>
+              <Select value={network} onValueChange={setNetwork}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="mainnet">Mainnet</SelectItem>
+                  <SelectItem value="testnet">Testnet</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <DialogFooter>
+              <Button
+                disabled={bulkImport.isPending || !mnemonics.trim() || !password}
+                onClick={handleImport}
+                className="gap-2"
+              >
+                {bulkImport.isPending ? (
+                  <><RefreshCw className="h-4 w-4 animate-spin" /> Importing & verifying…</>
+                ) : (
+                  <><Upload className="h-4 w-4" /> Import & Verify</>
+                )}
+              </Button>
+            </DialogFooter>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─── Staking rewards panel ────────────────────────────────────────────────────
+function WalletStakingPanel({ id }: { id: number }) {
+  const { data, isLoading, refetch, isFetching } = useGetWalletStakingRewards(id);
+
+  if (isLoading) {
+    return (
+      <div className="space-y-2 p-4">
+        {Array.from({ length: 2 }).map((_, i) => <Skeleton key={i} className="h-8 w-full" />)}
+      </div>
+    );
+  }
+
+  const rewards = data?.rewards ?? [];
+
+  return (
+    <div className="bg-background/50 border-t border-border/40">
+      <div className="flex items-center justify-between px-4 py-2 border-b border-border/30">
+        <span className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+          <Coins className="h-3 w-3 text-amber-400" />
+          {rewards.length === 0 ? "No pending staking rewards" : `Staking rewards across ${rewards.length} validator(s)`}
+        </span>
+        <div className="flex items-center gap-3">
+          {data && parseFloat(data.totalMEC) > 0 && (
+            <span className="text-xs font-semibold text-amber-400">
+              Total: {parseFloat(data.totalMEC).toFixed(6)} MEC
+            </span>
+          )}
+          <button
+            onClick={() => refetch()}
+            disabled={isFetching}
+            className="text-muted-foreground hover:text-primary transition-colors disabled:opacity-50"
+            title="Refresh"
+          >
+            <RefreshCw className={`h-3 w-3 ${isFetching ? "animate-spin" : ""}`} />
+          </button>
+        </div>
+      </div>
+      {rewards.length > 0 && (
+        <Table>
+          <TableHeader>
+            <TableRow className="border-border/30 hover:bg-transparent">
+              <TableHead className="text-xs py-2 pl-4">Validator</TableHead>
+              <TableHead className="text-xs py-2">Pending Reward</TableHead>
+              <TableHead className="text-xs py-2 pr-4">Raw (umec)</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rewards.map((r) => (
+              <TableRow key={r.validatorAddress} className="border-border/20 hover:bg-muted/30">
+                <TableCell className="py-2 pl-4 font-mono text-xs text-muted-foreground">
+                  {r.validatorAddress.slice(0, 16)}…{r.validatorAddress.slice(-6)}
+                </TableCell>
+                <TableCell className="py-2 font-mono text-xs text-amber-400">
+                  {parseFloat(r.amount).toFixed(6)} MEC
+                </TableCell>
+                <TableCell className="py-2 pr-4 font-mono text-xs text-muted-foreground">
+                  {r.amountRaw}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      )}
+    </div>
+  );
+}
+
 // ─── Transaction history panel ────────────────────────────────────────────────
 function WalletTxHistory({ id }: { id: number }) {
   const { data, isLoading, refetch, isFetching } = useGetWalletTransactions(id);
@@ -461,6 +651,7 @@ export default function Wallets() {
   const [password, setPassword] = useState("");
   const [network, setNetwork] = useState("mainnet");
   const [expandedTxWallet, setExpandedTxWallet] = useState<number | null>(null);
+  const [expandedStakingWallet, setExpandedStakingWallet] = useState<number | null>(null);
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: getListWalletsQueryKey() });
 
@@ -529,6 +720,7 @@ export default function Wallets() {
         <div className="flex gap-2 flex-wrap">
           <ExtensionImportDialog onImported={invalidate} />
           <DeriveAccountsDialog onImport={handleDerivedImport} />
+          <BulkImportDialog onImported={invalidate} />
           <Dialog open={isAddOpen} onOpenChange={(v) => { setIsAddOpen(v); if (!v) { setLabel(""); setMnemonic(""); setPrivateKey(""); setPassword(""); setNetwork("mainnet"); setAddMode("mnemonic"); } }}>
             <DialogTrigger asChild>
               <Button className="gap-2"><Plus className="h-4 w-4" /> Add Manually</Button>
@@ -628,6 +820,7 @@ export default function Wallets() {
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
+
           <TableBody>
             {isLoading ? (
               Array.from({ length: 3 }).map((_, i) => (
@@ -659,7 +852,16 @@ export default function Wallets() {
                     <TableCell className="font-medium">
                       <div className="flex items-center gap-2">
                         <WalletIcon className="h-4 w-4 text-primary shrink-0" />
-                        {wallet.label}
+                        <span>{wallet.label}</span>
+                        {wallet.verified === false ? (
+                          <span title="Unverified — address has no on-chain history">
+                            <ShieldOff className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+                          </span>
+                        ) : (
+                          <span title="Verified on-chain">
+                            <ShieldCheck className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+                          </span>
+                        )}
                       </div>
                     </TableCell>
                     <TableCell className="font-mono text-xs text-muted-foreground">
@@ -695,8 +897,23 @@ export default function Wallets() {
                         <Button
                           variant="ghost"
                           size="icon"
+                          title="Staking rewards"
+                          onClick={() => {
+                            setExpandedStakingWallet(expandedStakingWallet === wallet.id ? null : wallet.id);
+                            setExpandedTxWallet(null);
+                          }}
+                          className={expandedStakingWallet === wallet.id ? "text-amber-400 bg-amber-400/10" : "text-muted-foreground"}
+                        >
+                          <Coins className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
                           title="Transaction history"
-                          onClick={() => setExpandedTxWallet(expandedTxWallet === wallet.id ? null : wallet.id)}
+                          onClick={() => {
+                            setExpandedTxWallet(expandedTxWallet === wallet.id ? null : wallet.id);
+                            setExpandedStakingWallet(null);
+                          }}
                           className={expandedTxWallet === wallet.id ? "text-primary bg-primary/10" : "text-muted-foreground"}
                         >
                           <History className="h-4 w-4" />
@@ -708,6 +925,13 @@ export default function Wallets() {
                       </div>
                     </TableCell>
                   </TableRow>
+                  {expandedStakingWallet === wallet.id && (
+                    <TableRow key={`staking-${wallet.id}`} className="border-border hover:bg-transparent">
+                      <TableCell colSpan={6} className="p-0">
+                        <WalletStakingPanel id={wallet.id} />
+                      </TableCell>
+                    </TableRow>
+                  )}
                   {expandedTxWallet === wallet.id && (
                     <TableRow key={`tx-${wallet.id}`} className="border-border hover:bg-transparent">
                       <TableCell colSpan={6} className="p-0">

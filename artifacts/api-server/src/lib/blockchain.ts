@@ -38,9 +38,12 @@ const MEC_COIN_TYPE = 118;
  */
 export const PRIVATE_KEY_PREFIX = "pk:";
 
+const MAINNET_REST = "http://118.175.0.247:11317";
+const TESTNET_REST = "http://118.175.0.249:1317";
+
 const MAINNET_ENDPOINTS = [
   {
-    base: "http://118.175.0.247:11317",
+    base: MAINNET_REST,
     path: (a: string) => `/cosmos/bank/v1beta1/balances/${a}`,
     type: "cosmos" as const,
   },
@@ -48,7 +51,7 @@ const MAINNET_ENDPOINTS = [
 
 const TESTNET_ENDPOINTS = [
   {
-    base: "http://118.175.0.249:1317",
+    base: TESTNET_REST,
     path: (a: string) => `/cosmos/bank/v1beta1/balances/${a}`,
     type: "cosmos" as const,
   },
@@ -78,7 +81,7 @@ function parseCosmosBalance(data: unknown, address: string): BalanceResult {
     const amount = (parseFloat(mec.amount) / 100_000_000).toFixed(8);
     return { address, balance: amount, denom: "MEC" };
   }
-  return { address, balance: "0.000000", denom: "MEC" };
+  return { address, balance: "0.00000000", denom: "MEC" };
 }
 
 // ─── Transaction History ────────────────────────────────────────────────────
@@ -151,8 +154,7 @@ export async function queryTransactions(
   network: string,
   limit = 25
 ): Promise<TxRecord[]> {
-  const baseUrl =
-    network === "testnet" ? "http://118.175.0.249:1317" : "http://118.175.0.247:11317";
+  const baseUrl = network === "testnet" ? TESTNET_REST : MAINNET_REST;
 
   let queryAddress = address;
   try {
@@ -189,6 +191,192 @@ export async function queryTransactions(
   results.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
   return results.slice(0, limit);
+}
+
+// ─── Staking / Distribution ────────────────────────────────────────────────
+
+export interface StakingReward {
+  validatorAddress: string;
+  amount: string;    // in MEC
+  amountRaw: string; // in umec (floor)
+}
+
+export interface StakingRewardsResult {
+  rewards: StakingReward[];
+  totalMEC: string;
+  totalUMec: string;
+}
+
+/**
+ * Query pending (withdrawable) staking rewards for a delegator across all validators.
+ * Uses the Cosmos distribution REST: /cosmos/distribution/v1beta1/delegators/{addr}/rewards
+ */
+export async function queryStakingRewards(
+  address: string,
+  network = "mainnet"
+): Promise<StakingRewardsResult> {
+  const baseUrl = network === "testnet" ? TESTNET_REST : MAINNET_REST;
+  let queryAddr = address;
+  try {
+    const { data } = fromBech32(address);
+    queryAddr = toBech32(MEC_PREFIX, data);
+  } catch { /* keep */ }
+
+  const url = `${baseUrl}/cosmos/distribution/v1beta1/delegators/${queryAddr}/rewards`;
+  const res = await axios.get(url, {
+    timeout: 10000,
+    headers: { Accept: "application/json" },
+    validateStatus: () => true,
+  });
+
+  // Chain returns 500 (nil pointer dereference) when wallet has no delegations — treat as empty
+  if (res.status >= 400 || !res.data?.rewards) {
+    return { rewards: [], totalMEC: "0.00000000", totalUMec: "0" };
+  }
+
+  const rewardsArr: any[] = res.data.rewards ?? [];
+  const rewards: StakingReward[] = rewardsArr.map((r: any) => {
+    const umecEntry = (r.reward ?? []).find((x: any) => x.denom === "umec");
+    const rawAmt = umecEntry ? parseFloat(umecEntry.amount) : 0;
+    return {
+      validatorAddress: r.validator_address,
+      amount: (rawAmt / 100_000_000).toFixed(8),
+      amountRaw: Math.floor(rawAmt).toString(),
+    };
+  });
+
+  const totalArr: any[] = res.data.total ?? [];
+  const totalUmecEntry = totalArr.find((t: any) => t.denom === "umec");
+  const totalRaw = totalUmecEntry ? parseFloat(totalUmecEntry.amount) : 0;
+
+  return {
+    rewards,
+    totalMEC: (totalRaw / 100_000_000).toFixed(8),
+    totalUMec: Math.floor(totalRaw).toString(),
+  };
+}
+
+/**
+ * Claim all pending staking rewards for a delegator from every validator.
+ * Sends one MsgWithdrawDelegatorReward per validator in a single batch transaction.
+ */
+export async function claimAllStakingRewards(params: {
+  privkeyHex: string;
+  delegatorAddress: string;
+  network?: string;
+}): Promise<SendResult> {
+  const { privkeyHex, delegatorAddress, network = "mainnet" } = params;
+
+  const { rewards } = await queryStakingRewards(delegatorAddress, network);
+  if (rewards.length === 0) {
+    throw new Error("No staking rewards available to claim");
+  }
+
+  const privkey = Buffer.from(privkeyHex, "hex");
+  const wallet = await DirectSecp256k1Wallet.fromKey(privkey, MEC_PREFIX);
+  const rpcUrl = network === "testnet" ? MEC_TESTNET_RPC : MEC_MAINNET_RPC;
+  const client = await SigningStargateClient.connectWithSigner(rpcUrl, wallet, { prefix: MEC_PREFIX });
+
+  const delegatorMe = normalizeMeAddress(delegatorAddress);
+  const msgs = rewards.map((r) => ({
+    typeUrl: "/cosmos.distribution.v1beta1.MsgWithdrawDelegatorReward",
+    value: {
+      delegatorAddress: delegatorMe,
+      validatorAddress: r.validatorAddress,
+    },
+  }));
+
+  const fee = {
+    amount: [{ denom: "umec", amount: MEC_FEE_UMEC }],
+    gas: MEC_GAS_LIMIT,
+  };
+
+  const result = await client.signAndBroadcast(delegatorMe, msgs, fee, "auto-claim staking rewards");
+
+  if (result.code !== 0) {
+    throw new Error(`Claim rewards failed (code ${result.code}): ${result.rawLog ?? "unknown"}`);
+  }
+
+  return { txHash: result.transactionHash, height: result.height };
+}
+
+/**
+ * Sweep the entire balance minus network fee from a wallet to the master address.
+ * Calculates exact sweepable amount as: balance - fee (10000 umec = 0.0001 MEC).
+ */
+export async function sweepToMaster(params: {
+  privkeyHex: string;
+  fromAddress: string;
+  masterAddress: string;
+  network?: string;
+  memo?: string;
+}): Promise<SendResult & { amountMEC: number }> {
+  const { privkeyHex, fromAddress, masterAddress, network = "mainnet", memo = "auto-sweep" } = params;
+
+  const bal = await queryBalance(fromAddress, network);
+  const balanceMEC = parseFloat(bal.balance);
+  // Fee is 10000 umec = 0.0001 MEC
+  const feeMEC = parseInt(MEC_FEE_UMEC, 10) / 100_000_000;
+  const sweepAmountMEC = balanceMEC - feeMEC;
+
+  if (sweepAmountMEC <= 0) {
+    throw new Error(
+      `Insufficient balance to sweep: ${bal.balance} MEC (fee is ${feeMEC} MEC)`
+    );
+  }
+
+  const result = await sendMEC({
+    privkeyHex,
+    fromAddress,
+    toAddress: masterAddress,
+    amountMEC: sweepAmountMEC,
+    network,
+    memo,
+  });
+
+  return { ...result, amountMEC: sweepAmountMEC };
+}
+
+/**
+ * Check whether an address has ever been activated on-chain.
+ * An account is considered "verified" if it has any balance entry or
+ * any transaction in its history (i.e. it exists in chain state).
+ */
+export async function isAddressVerifiedOnChain(
+  address: string,
+  network = "mainnet"
+): Promise<boolean> {
+  try {
+    const baseUrl = network === "testnet" ? TESTNET_REST : MAINNET_REST;
+    let queryAddr = address;
+    try {
+      const { data } = fromBech32(address);
+      queryAddr = toBech32(MEC_PREFIX, data);
+    } catch { /* keep */ }
+
+    // Check balance first (fastest)
+    const balUrl = `${baseUrl}/cosmos/bank/v1beta1/balances/${queryAddr}`;
+    const balRes = await axios.get(balUrl, {
+      timeout: 8000,
+      headers: { Accept: "application/json" },
+      validateStatus: (s) => s < 500,
+    });
+    const balances: any[] = balRes.data?.balances ?? [];
+    if (balances.length > 0) return true;
+
+    // Check auth account exists
+    const authUrl = `${baseUrl}/cosmos/auth/v1beta1/accounts/${queryAddr}`;
+    const authRes = await axios.get(authUrl, {
+      timeout: 8000,
+      headers: { Accept: "application/json" },
+      validateStatus: (s) => s < 500,
+    });
+    if (authRes.status === 200 && authRes.data?.account) return true;
+
+    return false;
+  } catch {
+    return false;
+  }
 }
 
 export async function queryBalance(address: string, network: string): Promise<BalanceResult> {
