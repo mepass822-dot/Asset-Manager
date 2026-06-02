@@ -264,10 +264,11 @@ router.get("/agent/scheduler", (_req, res): void => {
   res.json(getSchedulerStatus());
 });
 
-router.post("/agent/scheduler", (req, res): void => {
-  const { intervalMs, walletIds, masterPassword, dryRun } = req.body as {
+router.post("/agent/scheduler", async (req, res): Promise<void> => {
+  const { intervalMs, walletIds, useMonitoredWallets, masterPassword, dryRun } = req.body as {
     intervalMs: number;
-    walletIds: number[];
+    walletIds?: number[];
+    useMonitoredWallets?: boolean;
     masterPassword: string;
     dryRun?: boolean;
   };
@@ -276,16 +277,26 @@ router.post("/agent/scheduler", (req, res): void => {
     res.status(400).json({ error: "intervalMs must be at least 60000 (1 minute)" });
     return;
   }
-  if (!Array.isArray(walletIds) || walletIds.length === 0) {
-    res.status(400).json({ error: "walletIds must be a non-empty array" });
-    return;
-  }
   if (!masterPassword) {
     res.status(400).json({ error: "masterPassword is required" });
     return;
   }
 
-  startScheduler({ intervalMs, walletIds, masterPassword, dryRun: dryRun ?? true });
+  let resolvedWalletIds: number[] = walletIds ?? [];
+  if (useMonitoredWallets) {
+    const monitored = await db
+      .select({ id: walletsTable.id })
+      .from(walletsTable)
+      .where(eq(walletsTable.monitored, true));
+    resolvedWalletIds = monitored.map((w) => w.id);
+  }
+
+  if (resolvedWalletIds.length === 0) {
+    res.status(400).json({ error: "No wallets selected. Either specify walletIds or mark wallets as monitored." });
+    return;
+  }
+
+  startScheduler({ intervalMs, walletIds: resolvedWalletIds, masterPassword, dryRun: dryRun ?? true });
   res.json(getSchedulerStatus());
 });
 

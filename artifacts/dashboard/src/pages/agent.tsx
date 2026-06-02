@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   useListWallets, useRunAgent,
   getListAgentLogsQueryKey, getGetAgentStatsQueryKey,
   getGetSchedulerQueryKey, getGetSweepConfigQueryKey, getSweepConfig,
 } from "@workspace/api-client-react";
+import { authFetch } from "@/lib/firebase";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,7 +15,7 @@ import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Play, Bot, Terminal, Clock, StopCircle, Timer, Shuffle, ShieldCheck, Coins, RefreshCw, Save } from "lucide-react";
+import { Play, Bot, Terminal, Clock, StopCircle, Timer, Shuffle, ShieldCheck, Coins, RefreshCw, Save, Eye, CheckSquare } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import type { AgentRunResult, AgentLog, SweepConfig } from "@workspace/api-client-react";
@@ -66,7 +67,7 @@ export default function Agent() {
 
   const saveSweepConfig = useMutation({
     mutationFn: (body: object) =>
-      fetch("/api/agent/sweep-config", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then(r => r.json()),
+      authFetch("/api/agent/sweep-config", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then(r => r.json()),
     onSuccess: () => {
       refetchSweepConfig();
       setSweepEditing(false);
@@ -86,28 +87,29 @@ export default function Agent() {
 
   // Scheduler state
   const [schedWallets, setSchedWallets] = useState<Set<number>>(new Set());
+  const [useMonitoredForSched, setUseMonitoredForSched] = useState(false);
   const [schedPassword, setSchedPassword] = useState("");
   const [schedInterval, setSchedInterval] = useState(String(INTERVALS[2].ms));
   const [schedDryRun, setSchedDryRun] = useState(true);
 
   const { data: scheduler, refetch: refetchScheduler } = useQuery({
     queryKey: getGetSchedulerQueryKey(),
-    queryFn: () => fetch("/api/agent/scheduler").then(r => r.json()),
+    queryFn: () => authFetch("/api/agent/scheduler").then(r => r.json()),
     refetchInterval: 5000,
   });
 
   const startSched = useMutation({
     mutationFn: (body: object) =>
-      fetch("/api/agent/scheduler", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then(r => r.json()),
+      authFetch("/api/agent/scheduler", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then(r => r.json()),
     onSuccess: () => {
       refetchScheduler();
       toast({ title: "Scheduler started", description: "Agent will run automatically on schedule." });
     },
-    onError: () => toast({ title: "Failed to start scheduler", variant: "destructive" }),
+    onError: (err: any) => toast({ title: "Failed to start scheduler", description: err?.message ?? "Check configuration.", variant: "destructive" }),
   });
 
   const stopSched = useMutation({
-    mutationFn: () => fetch("/api/agent/scheduler", { method: "DELETE" }).then(r => r.json()),
+    mutationFn: () => authFetch("/api/agent/scheduler", { method: "DELETE" }).then(r => r.json()),
     onSuccess: () => {
       refetchScheduler();
       toast({ title: "Scheduler stopped" });
@@ -121,10 +123,19 @@ export default function Agent() {
   };
 
   const toggleSchedWallet = (id: number) => {
+    if (useMonitoredForSched) return;
     const s = new Set(schedWallets);
     s.has(id) ? s.delete(id) : s.add(id);
     setSchedWallets(s);
   };
+
+  // Helpers
+  const monitoredWallets = wallets?.filter((w: any) => w.monitored) ?? [];
+  const monitoredIds = new Set(monitoredWallets.map((w: any) => w.id));
+
+  const selectAllManual = () => setSelectedWallets(new Set(wallets?.map(w => w.id) ?? []));
+  const selectMonitoredManual = () => setSelectedWallets(new Set(monitoredWallets.map((w: any) => w.id)));
+  const selectAllSched = () => setSchedWallets(new Set(wallets?.map(w => w.id) ?? []));
 
   const handleRun = () => {
     setResult(null);
@@ -143,16 +154,23 @@ export default function Agent() {
   };
 
   const handleStartScheduler = () => {
-    if (schedWallets.size === 0 || !schedPassword) return;
-    startSched.mutate({
+    if (!schedPassword) return;
+    const body: any = {
       intervalMs: Number(schedInterval),
-      walletIds: Array.from(schedWallets),
       masterPassword: schedPassword,
       dryRun: schedDryRun,
-    });
+    };
+    if (useMonitoredForSched) {
+      body.useMonitoredWallets = true;
+    } else {
+      if (schedWallets.size === 0) return;
+      body.walletIds = Array.from(schedWallets);
+    }
+    startSched.mutate(body);
   };
 
   const isSchedulerRunning = scheduler?.enabled === true;
+  const schedCanStart = !!schedPassword && (useMonitoredForSched ? monitoredWallets.length > 0 : schedWallets.size > 0);
 
   return (
     <div className="space-y-6">
@@ -334,25 +352,82 @@ export default function Agent() {
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label>Wallets to Monitor</Label>
-                  <div className="space-y-2 max-h-[140px] overflow-auto border border-border/50 rounded-md p-2">
-                    {walletsLoading ? (
-                      <div className="text-sm text-muted-foreground">Loading...</div>
-                    ) : wallets?.length === 0 ? (
-                      <div className="text-sm text-muted-foreground">No wallets.</div>
-                    ) : (
-                      wallets?.map(w => (
-                        <div key={w.id} className="flex items-center space-x-2">
-                          <Checkbox id={`sw-${w.id}`} checked={schedWallets.has(w.id)} onCheckedChange={() => toggleSchedWallet(w.id)} />
-                          <label htmlFor={`sw-${w.id}`} className="text-sm font-medium leading-none cursor-pointer">
-                            {w.label} <span className="text-muted-foreground font-mono text-xs">({w.address.slice(0, 6)}...)</span>
-                          </label>
-                        </div>
-                      ))
-                    )}
+                {/* Wallet selection mode toggle */}
+                <div className="flex items-center justify-between rounded-lg border border-border/50 p-3">
+                  <div>
+                    <Label className="flex items-center gap-1"><Eye className="h-3.5 w-3.5 text-blue-400" /> Use Monitored Wallets</Label>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Auto-select all wallets marked as monitored
+                      {monitoredWallets.length > 0 && <span className="text-blue-400 ml-1">({monitoredWallets.length} active)</span>}
+                    </p>
                   </div>
+                  <Switch checked={useMonitoredForSched} onCheckedChange={setUseMonitoredForSched} />
                 </div>
+
+                {!useMonitoredForSched && (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <Label>Wallets to Monitor</Label>
+                      <div className="flex gap-1">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-6 px-2 text-xs gap-1 text-muted-foreground"
+                          onClick={selectAllSched}
+                        >
+                          <CheckSquare className="h-3 w-3" /> All
+                        </Button>
+                        {monitoredWallets.length > 0 && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-6 px-2 text-xs gap-1 text-blue-400"
+                            onClick={() => setSchedWallets(new Set(monitoredWallets.map((w: any) => w.id)))}
+                          >
+                            <Eye className="h-3 w-3" /> Monitored
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                    <div className="space-y-2 max-h-[140px] overflow-auto border border-border/50 rounded-md p-2">
+                      {walletsLoading ? (
+                        <div className="text-sm text-muted-foreground">Loading...</div>
+                      ) : wallets?.length === 0 ? (
+                        <div className="text-sm text-muted-foreground">No wallets.</div>
+                      ) : (
+                        wallets?.map((w: any) => (
+                          <div key={w.id} className="flex items-center space-x-2">
+                            <Checkbox id={`sw-${w.id}`} checked={schedWallets.has(w.id)} onCheckedChange={() => toggleSchedWallet(w.id)} />
+                            <label htmlFor={`sw-${w.id}`} className="text-sm font-medium leading-none cursor-pointer flex items-center gap-1">
+                              {w.label}
+                              <span className="text-muted-foreground font-mono text-xs">({w.address.slice(0, 6)}...)</span>
+                              {w.monitored && <Eye className="h-3 w-3 text-blue-400" />}
+                            </label>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {useMonitoredForSched && monitoredWallets.length > 0 && (
+                  <div className="space-y-1 border border-blue-500/20 bg-blue-500/5 rounded-md p-2 max-h-[120px] overflow-auto">
+                    {monitoredWallets.map((w: any) => (
+                      <div key={w.id} className="flex items-center gap-2 text-sm">
+                        <Eye className="h-3.5 w-3.5 text-blue-400 shrink-0" />
+                        <span className="font-medium">{w.label}</span>
+                        <span className="text-muted-foreground font-mono text-xs">({w.address.slice(0, 6)}...)</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {useMonitoredForSched && monitoredWallets.length === 0 && (
+                  <div className="text-sm text-amber-400 border border-amber-500/30 bg-amber-500/5 rounded-md p-3">
+                    No wallets are marked as monitored. Go to the Wallets page and toggle the eye icon on any wallet, or select wallets and click "Monitor All".
+                  </div>
+                )}
+
                 <div className="space-y-2">
                   <Label>Run Interval</Label>
                   <Select value={schedInterval} onValueChange={setSchedInterval}>
@@ -386,11 +461,18 @@ export default function Agent() {
                 <Button
                   className="w-full gap-2 font-bold"
                   onClick={handleStartScheduler}
-                  disabled={startSched.isPending || schedWallets.size === 0 || !schedPassword}
+                  disabled={startSched.isPending || !schedCanStart}
                 >
                   <Timer className="h-4 w-4" />
                   {startSched.isPending ? "Starting..." : "Start Scheduler"}
                 </Button>
+                {!schedCanStart && schedPassword && (
+                  <p className="text-xs text-amber-400">
+                    {useMonitoredForSched
+                      ? "Mark at least one wallet as monitored first."
+                      : "Select at least one wallet."}
+                  </p>
+                )}
               </div>
             </div>
           )}
@@ -406,22 +488,46 @@ export default function Agent() {
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="space-y-3">
-                <Label>Target Wallets</Label>
+                <div className="flex items-center justify-between">
+                  <Label>Target Wallets</Label>
+                  <div className="flex gap-1">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-6 px-2 text-xs gap-1 text-muted-foreground"
+                      onClick={selectAllManual}
+                    >
+                      <CheckSquare className="h-3 w-3" /> All
+                    </Button>
+                    {monitoredWallets.length > 0 && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-6 px-2 text-xs gap-1 text-blue-400"
+                        onClick={selectMonitoredManual}
+                      >
+                        <Eye className="h-3 w-3" /> Monitored
+                      </Button>
+                    )}
+                  </div>
+                </div>
                 <div className="space-y-2 max-h-[200px] overflow-auto border border-border/50 rounded-md p-2">
                   {walletsLoading ? (
                     <div className="text-sm text-muted-foreground">Loading wallets...</div>
                   ) : wallets?.length === 0 ? (
                     <div className="text-sm text-muted-foreground">No wallets available.</div>
                   ) : (
-                    wallets?.map(w => (
+                    wallets?.map((w: any) => (
                       <div key={w.id} className="flex items-center space-x-2">
                         <Checkbox
                           id={`wallet-${w.id}`}
                           checked={selectedWallets.has(w.id)}
                           onCheckedChange={() => toggleWallet(w.id)}
                         />
-                        <label htmlFor={`wallet-${w.id}`} className="text-sm font-medium leading-none cursor-pointer">
-                          {w.label} <span className="text-muted-foreground font-mono text-xs">({w.address.slice(0, 6)}...)</span>
+                        <label htmlFor={`wallet-${w.id}`} className="text-sm font-medium leading-none cursor-pointer flex items-center gap-1">
+                          {w.label}
+                          <span className="text-muted-foreground font-mono text-xs">({w.address.slice(0, 6)}...)</span>
+                          {w.monitored && <Eye className="h-3 w-3 text-blue-400" />}
                         </label>
                       </div>
                     ))

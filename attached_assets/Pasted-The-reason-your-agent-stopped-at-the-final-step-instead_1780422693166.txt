@@ -1,0 +1,171 @@
+The reason your agent stopped at the final step instead of actually executing the transaction is that **it lacks an underlying database to track the real-time state of the wallets.**
+
+When you typed `yes`, the agent lost the "context" of the transaction details because it didn't have a structured table to look up the private key for `me1280vv0xhd38zsxe6nun0z8cn793dpw2jzj3d80`. Instead, it fell back to its general greeting menu.
+
+To fix this, we need to build a local, secure SQLite database. This database will give your agent a permanent memory layout so it can trace every wallet's verification status, link them to their credentials safely, track pending actions, and log successful sweeps.
+
+---
+
+## The Database Schema Design
+
+We will use a secure, local **SQLite** database (`agent_vault.db`). It contains three essential tables:
+
+1. `wallets`: Stores addresses, categorization tags, and secure links to credentials.
+2. `system_settings`: Stores global constants like your designated master address.
+3. `transaction_logs`: Tracks every sweep for auditing and monitoring performance.
+
+```
+                  ┌──────────────────────────────┐
+                  │       system_settings        │
+                  ├──────────────────────────────┤
+                  │ key (TEXT, PK)               │
+                  │ value (TEXT)                 │
+                  └──────────────────────────────┘
+                                  │
+                                  ▼
+ ┌──────────────────────────────┐   ┌──────────────────────────────┐
+ │           wallets            │   │       transaction_logs       │
+ ├──────────────────────────────┤   ├──────────────────────────────┤
+ │ address (TEXT, PK)           │──►│ id (INTEGER, PK)             │
+ │ moniker_alias (TEXT)         │   │ source_address (TEXT, FK)    │
+ │ status (TEXT)                │   │ destination_address (TEXT)   │
+ │ encrypted_key_ref (TEXT)     │   │ amount_swept (REAL)          │
+ │ date_imported (TIMESTAMP)    │   │ tx_hash (TEXT)               │
+ └──────────────────────────────┘   │ timestamp (TIMESTAMP)        │
+                                    └──────────────────────────────┘
+
+```
+
+---
+
+## Production Blueprint: Database Initialization Script
+
+Create a file named `database_setup.py` in your local project folder. Running this script creates the secure layout and seeds it with your configuration rules.
+
+```python
+import sqlite3
+import os
+
+DB_NAME = "agent_vault.db"
+
+def initialize_database():
+    # Establish connection with the local database file
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+
+    print("[*] Creating relational database tables...")
+
+    # 1. Global Settings Table
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS system_settings (
+        setting_key TEXT PRIMARY KEY,
+        setting_value TEXT NOT NULL
+    );
+    """)
+
+    # 2. Wallets Registry Table
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS wallets (
+        address TEXT PRIMARY KEY,
+        moniker_alias TEXT UNIQUE,
+        status TEXT CHECK(status IN ('verified', 'unverified')) DEFAULT 'unverified',
+        encrypted_key_ref TEXT NOT NULL,
+        date_imported TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
+
+    # 3. Transaction Execution Logs Table
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS transaction_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        source_address TEXT NOT NULL,
+        destination_address TEXT NOT NULL,
+        amount_swept REAL NOT NULL,
+        tx_hash TEXT UNIQUE NOT NULL,
+        tx_type TEXT NOT NULL,
+        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (source_address) REFERENCES wallets(address)
+    );
+    """)
+
+    # Seed the designated master address into settings
+    master_dest = "me1h4fc80gz38ms8tejlj37rxmf7uh6xe25fk0tfx"
+    cursor.execute("""
+    INSERT OR REPLACE INTO system_settings (setting_key, setting_value)
+    VALUES ('master_sweep_destination', ?);
+    """, (master_dest,))
+
+    conn.commit()
+    conn.close()
+    print("[+] Database successfully initialized and ready for automated integration.")
+
+if __name__ == "__main__":
+    initialize_database()
+
+```
+
+---
+
+## Python Integration Layer for Your Agent
+
+To ensure your agent can query balances, check status, or finalize confirmations smoothly, here are the Python helper functions to manage data flow dynamically.
+
+```python
+import sqlite3
+
+def get_master_destination():
+    """Queries database for the hardcoded safe sweep target."""
+    with sqlite3.connect("agent_vault.db") as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT setting_value FROM system_settings WHERE setting_key = 'master_sweep_destination';")
+        result = cursor.fetchone()
+        return result[0] if result else None
+
+def register_bulk_wallets(wallet_list):
+    """
+    Expects a list of dicts: 
+    [{'address': '0x...', 'alias': 'wallet_1', 'status': 'verified', 'key': 'secret_ref'}]
+    """
+    with sqlite3.connect("agent_vault.db") as conn:
+        cursor = conn.cursor()
+        cursor.executemany("""
+        INSERT OR REPLACE INTO wallets (address, moniker_alias, status, encrypted_key_ref)
+        VALUES (:address, :alias, :status, :key);
+        """, wallet_list)
+        conn.commit()
+        print(f"[+] Bulk import completed: {len(wallet_list)} records processed.")
+
+def fetch_signing_key(source_address):
+    """Retrieves specific key mapping for execution layer verification."""
+    with sqlite3.connect("agent_vault.db") as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT encrypted_key_ref, status FROM wallets WHERE address = ?;", (source_address,))
+        result = cursor.fetchone()
+        if result:
+            # Enforce guardrail: Only permit execution if status is explicitly verified
+            if result[1] != 'verified':
+                raise PermissionError("Execution Refused: Target wallet status is 'unverified'.")
+            return result[0]
+        return None
+
+def log_completed_sweep(source, destination, amount, tx_hash, tx_type="Plain Sweep"):
+    """Saves transaction event metrics permanently."""
+    with sqlite3.connect("agent_vault.db") as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+        INSERT INTO transaction_logs (source_address, destination_address, amount_swept, tx_hash, tx_type)
+        VALUES (?, ?, ?, ?, ?);
+        """, (source, destination, amount, tx_hash, tx_type))
+        conn.commit()
+
+```
+
+---
+
+## How This Resolves Your Issue
+
+When you implement this database, your agent's interactive loop can process the prompt effectively:
+
+1. **When you order the sweep:** The agent checks `get_master_destination()`, confirms it matches, outputs the proposal, and temporarily stores the pending instruction state in your session file or variables.
+2. **When you type `yes`:** Instead of losing focus, your controller script calls `fetch_signing_key('me1280vv...')`, builds the Web3 transaction payload locally, broadcasts it to Meta Earth, and saves the receipt via `log_completed_sweep()`.
+3. **Menu Integrity:** The agent can accurately run inventory options like *Option A (Review Balances)* or *Option C (Verify unverified wallets)* by executing a fast `SELECT COUNT(*) FROM wallets WHERE status = 'unverified';` query directly against the tables.

@@ -10,6 +10,7 @@ export const walletsTable = pgTable("wallets", {
   network: text("network").notNull().default("mainnet"),
   hdIndex: integer("hd_index").notNull().default(0),
   verified: boolean("verified").notNull().default(true),
+  monitored: boolean("monitored").notNull().default(false),
   importSource: text("import_source").notNull().default("manual"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),

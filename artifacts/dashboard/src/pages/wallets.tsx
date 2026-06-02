@@ -9,7 +9,8 @@ import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Plus, Trash2, Wallet as WalletIcon, Network, Download, Puzzle, ChevronRight, ChevronDown, Copy, Check, Hash, Layers, KeyRound, BookText, ArrowUpRight, ArrowDownLeft, History, ExternalLink, RefreshCw, ShieldCheck, ShieldOff, Upload, Coins } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Plus, Trash2, Wallet as WalletIcon, Network, Download, Puzzle, ChevronRight, ChevronDown, Copy, Check, Hash, Layers, KeyRound, BookText, ArrowUpRight, ArrowDownLeft, History, ExternalLink, RefreshCw, ShieldCheck, ShieldOff, Upload, Coins, Eye, EyeOff, CheckSquare, Square, X } from "lucide-react";
 import { SendDialog } from "@/components/send-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -98,81 +99,25 @@ function DeriveAccountsDialog({ onImport }: { onImport: (accounts: DerivedAccoun
       <DialogContent className="sm:max-w-[560px]">
         <DialogHeader>
           <DialogTitle>Derive Multiple Accounts</DialogTitle>
-          <DialogDescription>
-            Generate up to 20 wallet addresses from one mnemonic using different HD path indices — the same way the Meta Earth extension creates multiple accounts.
-          </DialogDescription>
+          <DialogDescription>Derive HD wallet accounts from a single mnemonic phrase.</DialogDescription>
         </DialogHeader>
 
-        {step === "input" && (
-          <div className="space-y-4 py-2">
-            <div className="grid gap-2">
+        {step === "input" ? (
+          <div className="space-y-4">
+            <div className="space-y-2">
               <Label>Mnemonic Phrase</Label>
               <textarea
                 className="w-full h-20 bg-background border border-border rounded-md px-3 py-2 text-sm font-mono resize-none outline-none focus:border-primary placeholder:text-muted-foreground"
                 placeholder="word1 word2 word3 ... (12 or 24 words)"
                 value={mnemonic}
-                onChange={e => setMnemonic(e.target.value)}
+                onChange={(e) => setMnemonic(e.target.value)}
               />
             </div>
-            <div className="grid gap-2">
+            <div className="space-y-2">
               <Label>Number of accounts to derive</Label>
-              <Select value={String(count)} onValueChange={v => setCount(Number(v))}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {[1,2,3,5,10,15,20].map(n => (
-                    <SelectItem key={n} value={String(n)}>{n} account{n > 1 ? "s" : ""} (index 0–{n-1})</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Input type="number" min={1} max={50} value={count} onChange={(e) => setCount(Number(e.target.value))} />
             </div>
-            <DialogFooter>
-              <Button disabled={!mnemonic.trim() || loading} onClick={derive}>
-                {loading ? "Deriving..." : "Derive Addresses"}
-              </Button>
-            </DialogFooter>
-          </div>
-        )}
-
-        {step === "select" && (
-          <div className="space-y-4 py-2">
-            <p className="text-xs text-muted-foreground">Select which accounts to add to the agent. All share the same mnemonic.</p>
-            <div className="rounded-lg border border-border/50 overflow-hidden max-h-64 overflow-y-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow className="hover:bg-transparent border-border/50">
-                    <TableHead className="w-8"></TableHead>
-                    <TableHead className="text-xs">Index</TableHead>
-                    <TableHead className="text-xs">Address</TableHead>
-                    <TableHead className="text-xs">HD Path</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {accounts.map(a => (
-                    <TableRow
-                      key={a.hdIndex}
-                      className={`border-border/50 cursor-pointer transition-colors ${selected.has(a.hdIndex) ? "bg-primary/5" : ""}`}
-                      onClick={() => toggleSelect(a.hdIndex)}
-                    >
-                      <TableCell>
-                        <div className={`w-4 h-4 rounded border ${selected.has(a.hdIndex) ? "bg-primary border-primary" : "border-border"} flex items-center justify-center`}>
-                          {selected.has(a.hdIndex) && <Check className="h-2.5 w-2.5 text-black" />}
-                        </div>
-                      </TableCell>
-                      <TableCell className="font-mono text-xs text-primary">{a.hdIndex}</TableCell>
-                      <TableCell className="font-mono text-xs text-muted-foreground">
-                        {a.address.slice(0, 12)}...{a.address.slice(-6)}
-                      </TableCell>
-                      <TableCell className="font-mono text-xs text-muted-foreground">{a.hdPath}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-            <div className="grid gap-2">
-              <Label>Encryption password for agent</Label>
-              <Input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Used to encrypt the mnemonic securely" />
-            </div>
-            <div className="grid gap-2">
+            <div className="space-y-2">
               <Label>Network</Label>
               <Select value={network} onValueChange={setNetwork}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
@@ -182,12 +127,34 @@ function DeriveAccountsDialog({ onImport }: { onImport: (accounts: DerivedAccoun
                 </SelectContent>
               </Select>
             </div>
-            <DialogFooter>
-              <Button variant="ghost" onClick={() => setStep("input")}>Back</Button>
-              <Button disabled={selected.size === 0 || !password} onClick={handleImport}>
-                Add {selected.size} Account{selected.size !== 1 ? "s" : ""}
+            <Button className="w-full" onClick={derive} disabled={loading || !mnemonic.trim()}>
+              {loading ? <RefreshCw className="h-4 w-4 animate-spin mr-2" /> : null}
+              {loading ? "Deriving..." : "Preview Accounts"}
+            </Button>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div className="space-y-2 max-h-[240px] overflow-auto border border-border/50 rounded-md p-2">
+              {accounts.map((a) => (
+                <div key={a.hdIndex} className="flex items-center gap-2 p-1 hover:bg-muted/30 rounded">
+                  <Checkbox id={`acc-${a.hdIndex}`} checked={selected.has(a.hdIndex)} onCheckedChange={() => toggleSelect(a.hdIndex)} />
+                  <label htmlFor={`acc-${a.hdIndex}`} className="flex-1 cursor-pointer">
+                    <span className="text-xs font-mono text-primary bg-primary/10 rounded px-1 mr-2">#{a.hdIndex}</span>
+                    <span className="font-mono text-xs text-muted-foreground">{a.address.slice(0, 12)}…{a.address.slice(-8)}</span>
+                  </label>
+                </div>
+              ))}
+            </div>
+            <div className="space-y-2">
+              <Label>Encryption Password</Label>
+              <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Encrypt all imported wallets with this password" />
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => setStep("input")} className="flex-1">Back</Button>
+              <Button className="flex-1" onClick={handleImport} disabled={selected.size === 0 || !password}>
+                Import {selected.size} Account{selected.size !== 1 ? "s" : ""}
               </Button>
-            </DialogFooter>
+            </div>
           </div>
         )}
       </DialogContent>
@@ -198,66 +165,48 @@ function DeriveAccountsDialog({ onImport }: { onImport: (accounts: DerivedAccoun
 // ─── Extension import dialog ──────────────────────────────────────────────────
 function ExtensionImportDialog({ onImported }: { onImported: () => void }) {
   const [open, setOpen] = useState(false);
-  const [step, setStep] = useState(1);
+  const [tab, setTab] = useState<"extension" | "download">("extension");
+  const [accounts, setAccounts] = useState<Array<{ address: string; name?: string }>>([]);
   const [password, setPassword] = useState("");
   const [network, setNetwork] = useState("mainnet");
-  const [jsonText, setJsonText] = useState("");
   const [loading, setLoading] = useState(false);
   const { toast } = useToast();
 
-  const dashboardUrl = window.location.origin;
+  const handleMessage = React.useCallback((e: MessageEvent) => {
+    if (e.data?.type === "MEC_ACCOUNTS" && Array.isArray(e.data.accounts)) {
+      setAccounts(e.data.accounts);
+    }
+  }, []);
 
-  const reset = () => { setStep(1); setPassword(""); setJsonText(""); setNetwork("mainnet"); };
+  React.useEffect(() => {
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
+  }, [handleMessage]);
 
-  const handleJsonImport = async () => {
-    if (!jsonText || !password) return;
+  const requestAccounts = () => {
+    window.postMessage({ type: "MEC_GET_ACCOUNTS" }, "*");
+  };
+
+  const handleImport = async () => {
+    if (!password) return;
     setLoading(true);
     try {
-      let accountList: any[];
-      try { accountList = JSON.parse(jsonText); } catch {
-        toast({ title: "Invalid JSON", description: "Could not parse the pasted data.", variant: "destructive" });
-        setLoading(false);
-        return;
-      }
-      if (!Array.isArray(accountList)) accountList = [accountList];
-
-      // Expand all accounts within each wallet entry
-      const wallets: any[] = [];
-      accountList.forEach((w: any, wi: number) => {
-        if (!w.mnemonic) return;
-        const accounts: any[] = Array.isArray(w.accounts) ? w.accounts : [];
-        if (accounts.length === 0) {
-          wallets.push({ label: w.walletName || `Wallet ${wi + 1}`, mnemonic: w.mnemonic, hdIndex: 0, password, network });
-        } else {
-          accounts.forEach((a: any, ai: number) => {
-            wallets.push({
-              label: a.accountName || w.walletName ? `${w.walletName || `Wallet ${wi+1}`} / Account ${ai}` : `Account ${ai}`,
-              mnemonic: w.mnemonic,
-              address: a.address || "",
-              hdIndex: typeof w.accountOffset === "number" ? w.accountOffset + ai : ai,
-              password,
-              network,
-            });
-          });
-        }
-      });
-
-      if (wallets.length === 0) {
-        toast({ title: "No valid wallets", description: "The pasted data had no wallets with mnemonics.", variant: "destructive" });
-        setLoading(false);
-        return;
-      }
-
+      const wallets = accounts.map((a, i) => ({
+        label: a.name || `Extension Account ${i}`,
+        address: a.address,
+        password,
+        network,
+      }));
       const resp = await authFetch("/api/wallets/import-extension", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ wallets })
+        body: JSON.stringify({ wallets }),
       });
       const result = await resp.json();
-      toast({ title: "Import complete", description: `${result.imported} account(s) imported, ${result.skipped} skipped.` });
+      toast({ title: "Extension accounts imported", description: `${result.imported} imported, ${result.skipped} skipped.` });
       onImported();
       setOpen(false);
-      reset();
+      setAccounts([]); setPassword("");
     } catch (err) {
       toast({ title: "Import failed", description: String(err), variant: "destructive" });
     }
@@ -265,95 +214,65 @@ function ExtensionImportDialog({ onImported }: { onImported: () => void }) {
   };
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) reset(); }}>
+    <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant="outline" className="gap-2 border-primary/40 text-primary hover:bg-primary/10">
+        <Button variant="outline" className="gap-2 border-border/60">
           <Puzzle className="h-4 w-4" /> Import from Extension
         </Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-[560px]">
+      <DialogContent className="sm:max-w-[480px]">
         <DialogHeader>
-          <DialogTitle>Import from Meta Earth Extension</DialogTitle>
-          <DialogDescription>Import all your accounts — including multiple accounts per wallet — from the Meta Earth extension.</DialogDescription>
+          <DialogTitle>Import from Chrome Extension</DialogTitle>
+          <DialogDescription>Connect your MEC Bridge extension to pull wallet addresses.</DialogDescription>
         </DialogHeader>
-
-        <div className="flex gap-2 mb-2">
-          {[1, 2, 3].map(s => (
-            <div key={s} className={`flex-1 h-1 rounded-full transition-colors ${step >= s ? "bg-primary" : "bg-border"}`} />
-          ))}
+        <div className="flex rounded-lg border border-border/60 overflow-hidden text-sm mb-2">
+          <button onClick={() => setTab("extension")} className={`flex-1 py-2 flex items-center justify-center gap-2 transition-colors ${tab === "extension" ? "bg-primary text-primary-foreground" : "hover:bg-muted text-muted-foreground"}`}>
+            <Puzzle className="h-3.5 w-3.5" /> Connect Extension
+          </button>
+          <button onClick={() => setTab("download")} className={`flex-1 py-2 flex items-center justify-center gap-2 border-l border-border/60 transition-colors ${tab === "download" ? "bg-primary text-primary-foreground" : "hover:bg-muted text-muted-foreground"}`}>
+            <Download className="h-3.5 w-3.5" /> Download Extension
+          </button>
         </div>
-
-        {step === 1 && (
-          <div className="space-y-4 py-2">
-            <div className="rounded-lg border border-border/60 bg-card p-4 space-y-3">
-              {[
-                { n: 1, title: "Download MEC Bridge extension", body: <>A helper that reads all your wallet accounts from the Meta Earth extension.<br/><a href="/api/wallets/bridge-extension.zip" download className="inline-flex items-center gap-1 mt-1.5 text-xs text-primary hover:underline"><Download className="h-3 w-3" /> Download bridge-extension.zip</a></> },
-                { n: 2, title: "Load it in Chrome", body: <>Open <code className="bg-muted px-1 rounded">chrome://extensions</code> → Enable Developer mode → Load unpacked → select extracted folder.</> },
-                { n: 3, title: "Click the bridge icon", body: <>Enter your dashboard URL and a password, then click Export. All your wallet accounts will be imported automatically.<div className="flex items-center gap-1 mt-1 bg-muted rounded px-2 py-1 font-mono text-xs text-primary w-fit">{dashboardUrl}<CopyButton text={dashboardUrl} /></div></> },
-              ].map(({ n, title, body }) => (
-                <div key={n} className="flex items-start gap-3">
-                  <div className="rounded-full bg-primary/10 text-primary w-6 h-6 flex items-center justify-center text-xs font-bold shrink-0">{n}</div>
-                  <div><p className="text-sm font-medium">{title}</p><p className="text-xs text-muted-foreground mt-1">{body}</p></div>
+        {tab === "download" ? (
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">Download and install the MEC Bridge Chrome extension to connect your Meta Earth wallets.</p>
+            <a href="/api/wallets/bridge-extension.zip" download>
+              <Button className="w-full gap-2"><Download className="h-4 w-4" /> Download MEC Bridge Extension</Button>
+            </a>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <Button variant="outline" className="w-full gap-2" onClick={requestAccounts}>
+              <Puzzle className="h-4 w-4" /> Request Accounts from Extension
+            </Button>
+            {accounts.length > 0 && (
+              <>
+                <div className="space-y-1 max-h-[160px] overflow-auto border border-border/50 rounded p-2">
+                  {accounts.map((a, i) => (
+                    <div key={i} className="font-mono text-xs p-1 text-muted-foreground">
+                      <span className="text-primary mr-2">{a.name || `Account ${i}`}</span>{a.address.slice(0, 12)}…{a.address.slice(-8)}
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-            <div className="flex justify-end gap-2">
-              <Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
-              <Button onClick={() => setStep(2)} className="gap-1">Manual Import <ChevronRight className="h-3.5 w-3.5" /></Button>
-            </div>
-          </div>
-        )}
-
-        {step === 2 && (
-          <div className="space-y-4 py-2">
-            <div className="space-y-2">
-              <Label>How to get your wallet data</Label>
-              <div className="rounded-lg border border-border/60 bg-card p-3 text-xs text-muted-foreground space-y-1.5">
-                <p>1. Open Chrome DevTools (F12) while the Meta Earth extension popup is open</p>
-                <p>2. Switch to the <strong className="text-foreground">Application</strong> tab → Local Storage → extension origin</p>
-                <p>3. Find the key <code className="bg-muted px-1 rounded text-primary">accountList</code> and copy its value</p>
-                <p>4. Or in Console run: <code className="bg-muted px-1 rounded text-primary">copy(localStorage.accountList)</code></p>
-              </div>
-            </div>
-            <div className="flex justify-between gap-2">
-              <Button variant="ghost" onClick={() => setStep(1)}>Back</Button>
-              <Button onClick={() => setStep(3)} className="gap-1">Continue <ChevronRight className="h-3.5 w-3.5" /></Button>
-            </div>
-          </div>
-        )}
-
-        {step === 3 && (
-          <div className="space-y-4 py-2">
-            <div className="grid gap-2">
-              <Label>Paste accountList JSON from extension</Label>
-              <textarea
-                className="w-full h-28 bg-background border border-border rounded-md px-3 py-2 text-xs font-mono resize-none outline-none focus:border-primary placeholder:text-muted-foreground"
-                placeholder='[{"mnemonic":"word1 word2...","accounts":[{"address":"me1..."},{"address":"me1..."}],...}]'
-                value={jsonText}
-                onChange={e => setJsonText(e.target.value)}
-              />
-              <p className="text-xs text-muted-foreground">All accounts inside each wallet will be imported as separate agent-managed entries.</p>
-            </div>
-            <div className="grid gap-2">
-              <Label>Encryption password for agent</Label>
-              <Input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Password to encrypt mnemonics in the agent" />
-            </div>
-            <div className="grid gap-2">
-              <Label>Network</Label>
-              <Select value={network} onValueChange={setNetwork}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="mainnet">Mainnet</SelectItem>
-                  <SelectItem value="testnet">Testnet</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <DialogFooter>
-              <Button variant="ghost" onClick={() => setStep(2)}>Back</Button>
-              <Button disabled={!jsonText || !password || loading} onClick={handleJsonImport}>
-                {loading ? "Importing..." : "Import All Accounts"}
-              </Button>
-            </DialogFooter>
+                <div className="space-y-2">
+                  <Label>Encryption Password</Label>
+                  <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Secure these wallets" />
+                </div>
+                <div className="space-y-2">
+                  <Label>Network</Label>
+                  <Select value={network} onValueChange={setNetwork}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="mainnet">Mainnet</SelectItem>
+                      <SelectItem value="testnet">Testnet</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Button className="w-full" onClick={handleImport} disabled={loading || !password}>
+                  {loading ? "Importing..." : `Import ${accounts.length} Wallet${accounts.length !== 1 ? "s" : ""}`}
+                </Button>
+              </>
+            )}
           </div>
         )}
       </DialogContent>
@@ -361,186 +280,137 @@ function ExtensionImportDialog({ onImported }: { onImported: () => void }) {
   );
 }
 
-// ─── Bulk import dialog (mnemonic phrases + raw private keys) ────────────────
+// ─── Bulk import dialog (mnemonic + private key tabs) ────────────────────────
 function BulkImportDialog({ onImported }: { onImported: () => void }) {
   const [open, setOpen] = useState(false);
-  const [mode, setMode] = useState<"mnemonic" | "privateKey">("mnemonic");
-  const [mnemonics, setMnemonics] = useState("");
-  const [keys, setKeys] = useState("");
+  const [tab, setTab] = useState<"mnemonic" | "key">("mnemonic");
+  const [text, setText] = useState("");
   const [password, setPassword] = useState("");
   const [network, setNetwork] = useState("mainnet");
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<any>(null);
+  const [result, setResult] = useState<{ imported: number; skipped: number; unverified: number; errors: string[] } | null>(null);
   const { toast } = useToast();
   const bulkImport = useBulkImportWallets();
 
-  const keyLineCount = keys.split("\n").filter((l) => l.trim()).length;
+  const lineCount = text.trim().split("\n").filter(l => l.trim()).length;
 
   const handleImport = async () => {
-    setResult(null);
-    if (mode === "mnemonic") {
-      bulkImport.mutate(
-        { data: { mnemonics, password, network } },
-        {
-          onSuccess: (data) => {
-            setResult(data);
-            onImported();
-            toast({ title: "Bulk Import Complete", description: `${data.verified} verified, ${data.unverified} unverified, ${data.skipped} skipped.` });
-          },
-          onError: () => toast({ title: "Bulk Import Failed", variant: "destructive" }),
-        }
-      );
-    } else {
-      setLoading(true);
-      try {
+    if (!password || !text.trim()) return;
+    setLoading(true);
+    try {
+      if (tab === "mnemonic") {
+        const phrases = text.trim().split("\n").map(l => l.trim()).filter(Boolean);
+        bulkImport.mutate(
+          { data: { mnemonics: phrases, password, network } },
+          {
+            onSuccess: (data: any) => {
+              setResult(data);
+              onImported();
+            },
+            onError: (err: any) => {
+              toast({ title: "Bulk import failed", description: err?.message || "Unknown error", variant: "destructive" });
+            }
+          }
+        );
+      } else {
         const resp = await authFetch("/api/wallets/bulk-import-keys", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ keys, password, network }),
+          body: JSON.stringify({ privateKeys: text.trim().split("\n").map(l => l.trim()).filter(Boolean), password, network }),
         });
         const data = await resp.json();
-        if (!resp.ok) throw new Error(data.error || "Import failed");
+        if (!resp.ok) throw new Error(data.error || "Failed");
         setResult(data);
         onImported();
-        toast({ title: "Bulk Key Import Complete", description: `${data.verified} verified, ${data.unverified} unverified, ${data.skipped} skipped.` });
-      } catch (err) {
-        toast({ title: "Import Failed", description: String(err), variant: "destructive" });
       }
-      setLoading(false);
+    } catch (err) {
+      toast({ title: "Import failed", description: String(err), variant: "destructive" });
     }
+    setLoading(false);
   };
 
-  const handleClose = (v: boolean) => {
-    setOpen(v);
-    if (!v) { setMnemonics(""); setKeys(""); setPassword(""); setResult(null); setMode("mnemonic"); }
-  };
-
-  const isPending = mode === "mnemonic" ? bulkImport.isPending : loading;
-  const isDisabled = isPending || !password || (mode === "mnemonic" ? !mnemonics.trim() : !keys.trim());
-
-  const ResultPanel = () => (
-    <div className="space-y-4 py-2">
-      <div className="grid grid-cols-3 gap-3 text-center">
-        <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3">
-          <div className="text-2xl font-bold text-emerald-400">{result.verified}</div>
-          <div className="text-xs text-muted-foreground mt-1 flex items-center justify-center gap-1">
-            <ShieldCheck className="h-3 w-3 text-emerald-400" /> Verified
-          </div>
-        </div>
-        <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
-          <div className="text-2xl font-bold text-amber-400">{result.unverified}</div>
-          <div className="text-xs text-muted-foreground mt-1 flex items-center justify-center gap-1">
-            <ShieldOff className="h-3 w-3 text-amber-400" /> Unverified
-          </div>
-        </div>
-        <div className="rounded-lg border border-border/40 bg-muted/30 p-3">
-          <div className="text-2xl font-bold text-muted-foreground">{result.skipped}</div>
-          <div className="text-xs text-muted-foreground mt-1">Skipped</div>
-        </div>
-      </div>
-      {result.skippedDetails?.length > 0 && (
-        <div className="rounded-md border border-border/40 bg-muted/20 p-3 max-h-[120px] overflow-auto">
-          <p className="text-xs font-medium text-muted-foreground mb-2">Skipped reasons:</p>
-          {result.skippedDetails.map((s: any, i: number) => (
-            <div key={i} className="text-xs text-muted-foreground/70">
-              {s.reason}: {(s.phrase ?? s.key ?? "").slice(0, 20)}…
-            </div>
-          ))}
-        </div>
-      )}
-      <Button className="w-full" onClick={() => handleClose(false)}>Done</Button>
-    </div>
-  );
+  const reset = () => { setText(""); setPassword(""); setResult(null); setNetwork("mainnet"); };
 
   return (
-    <Dialog open={open} onOpenChange={handleClose}>
+    <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) reset(); }}>
       <DialogTrigger asChild>
-        <Button variant="outline" className="gap-2"><Upload className="h-4 w-4" /> Bulk Import</Button>
+        <Button variant="outline" className="gap-2 border-border/60">
+          <Upload className="h-4 w-4" /> Bulk Import
+        </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-[520px]">
         <DialogHeader>
-          <DialogTitle>Bulk Import</DialogTitle>
-          <DialogDescription>
-            Import multiple wallets at once — paste mnemonic phrases or raw private keys, one per line.
-          </DialogDescription>
+          <DialogTitle>Bulk Import Wallets</DialogTitle>
+          <DialogDescription>Import multiple wallets at once — one per line.</DialogDescription>
         </DialogHeader>
 
-        {result ? <ResultPanel /> : (
-          <div className="space-y-4 py-2">
-            {/* Mode switcher */}
+        {result ? (
+          <div className="space-y-4">
+            <div className="grid grid-cols-3 gap-3">
+              <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-3 text-center">
+                <div className="text-2xl font-bold text-emerald-400">{result.imported}</div>
+                <div className="text-xs text-muted-foreground mt-1">Imported</div>
+              </div>
+              <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3 text-center">
+                <div className="text-2xl font-bold text-yellow-400">{result.skipped}</div>
+                <div className="text-xs text-muted-foreground mt-1">Skipped</div>
+              </div>
+              <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-3 text-center">
+                <div className="text-2xl font-bold text-blue-400">{result.unverified ?? 0}</div>
+                <div className="text-xs text-muted-foreground mt-1">Unverified</div>
+              </div>
+            </div>
+            {result.errors?.length > 0 && (
+              <div className="space-y-1 max-h-[120px] overflow-auto">
+                {result.errors.map((e, i) => (
+                  <p key={i} className="text-xs text-destructive">{e}</p>
+                ))}
+              </div>
+            )}
+            <Button className="w-full" onClick={() => { reset(); setOpen(false); }}>Done</Button>
+          </div>
+        ) : (
+          <div className="space-y-4">
             <div className="flex rounded-lg border border-border/60 overflow-hidden text-sm">
-              <button
-                onClick={() => setMode("mnemonic")}
-                className={`flex-1 flex items-center justify-center gap-2 py-2 transition-colors ${mode === "mnemonic" ? "bg-primary text-primary-foreground" : "hover:bg-muted text-muted-foreground"}`}
-              >
+              <button onClick={() => setTab("mnemonic")} className={`flex-1 py-2 flex items-center justify-center gap-2 transition-colors ${tab === "mnemonic" ? "bg-primary text-primary-foreground" : "hover:bg-muted text-muted-foreground"}`}>
                 <BookText className="h-3.5 w-3.5" /> Mnemonic Phrases
               </button>
-              <button
-                onClick={() => setMode("privateKey")}
-                className={`flex-1 flex items-center justify-center gap-2 py-2 transition-colors border-l border-border/60 ${mode === "privateKey" ? "bg-primary text-primary-foreground" : "hover:bg-muted text-muted-foreground"}`}
-              >
+              <button onClick={() => setTab("key")} className={`flex-1 py-2 flex items-center justify-center gap-2 border-l border-border/60 transition-colors ${tab === "key" ? "bg-primary text-primary-foreground" : "hover:bg-muted text-muted-foreground"}`}>
                 <KeyRound className="h-3.5 w-3.5" /> Private Keys
               </button>
             </div>
-
-            {mode === "mnemonic" ? (
-              <div className="grid gap-2">
-                <Label>Mnemonic Phrases <span className="text-muted-foreground">(one per line)</span></Label>
-                <textarea
-                  className="w-full h-36 bg-background border border-border rounded-md px-3 py-2 text-sm font-mono resize-none outline-none focus:border-primary placeholder:text-muted-foreground"
-                  placeholder={"word1 word2 word3 ... word12\nword1 word2 word3 ... word24\n..."}
-                  value={mnemonics}
-                  onChange={(e) => setMnemonics(e.target.value)}
-                />
-                <p className="text-xs text-muted-foreground">
-                  12 or 24 words per line. Duplicates are skipped. On-chain verification confirms the address exists on ME Hub.
-                </p>
-              </div>
-            ) : (
-              <div className="grid gap-2">
-                <div className="flex items-center justify-between">
-                  <Label>Private Keys <span className="text-muted-foreground">(one per line)</span></Label>
-                  {keyLineCount > 0 && (
-                    <span className="text-xs text-primary font-mono">{keyLineCount} key{keyLineCount !== 1 ? "s" : ""} detected</span>
-                  )}
-                </div>
-                <textarea
-                  className="w-full h-36 bg-background border border-border rounded-md px-3 py-2 text-sm font-mono resize-none outline-none focus:border-primary placeholder:text-muted-foreground"
-                  placeholder={"a1b2c3d4e5f6...64hexchars\n0xa1b2c3d4e5f6...64hexchars\nBase64encoded32bytes==\n..."}
-                  value={keys}
-                  onChange={(e) => setKeys(e.target.value)}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Raw hex (64 chars), 0x-prefixed hex, or Base64 encoded 32-byte keys. Duplicates and invalid keys are skipped.
-                </p>
-              </div>
-            )}
-
-            <div className="grid gap-2">
-              <Label>Encryption Password</Label>
-              <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Securely encrypts all imported keys" />
+            <div className="space-y-2">
+              <Label>{tab === "mnemonic" ? "Mnemonic Phrases (one per line)" : "Private Keys (one per line)"}</Label>
+              <textarea
+                className="w-full h-32 bg-background border border-border rounded-md px-3 py-2 text-sm font-mono resize-none outline-none focus:border-primary placeholder:text-muted-foreground"
+                placeholder={tab === "mnemonic" ? "word1 word2 ... word12\nword1 word2 ... word24" : "64-char hex, 0x-prefixed hex, or Base64 — one per line"}
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+              />
+              {lineCount > 0 && (
+                <p className="text-xs text-muted-foreground">{lineCount} {tab === "mnemonic" ? "phrase" : "key"}{lineCount !== 1 ? "s" : ""} detected</p>
+              )}
             </div>
-            <div className="grid gap-2">
-              <Label>Network</Label>
-              <Select value={network} onValueChange={setNetwork}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="mainnet">Mainnet</SelectItem>
-                  <SelectItem value="testnet">Testnet</SelectItem>
-                </SelectContent>
-              </Select>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label>Encryption Password</Label>
+                <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Secure all wallets" />
+              </div>
+              <div className="space-y-2">
+                <Label>Network</Label>
+                <Select value={network} onValueChange={setNetwork}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="mainnet">Mainnet</SelectItem>
+                    <SelectItem value="testnet">Testnet</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
-            <DialogFooter>
-              <Button disabled={isDisabled} onClick={handleImport} className="gap-2">
-                {isPending ? (
-                  <><RefreshCw className="h-4 w-4 animate-spin" /> Importing & verifying…</>
-                ) : mode === "mnemonic" ? (
-                  <><Upload className="h-4 w-4" /> Import & Verify</>
-                ) : (
-                  <><KeyRound className="h-4 w-4" /> Import {keyLineCount > 0 ? keyLineCount : ""} Key{keyLineCount !== 1 ? "s" : ""}</>
-                )}
-              </Button>
-            </DialogFooter>
+            <Button className="w-full gap-2" onClick={handleImport} disabled={loading || !password || !text.trim()}>
+              {loading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+              {loading ? "Importing..." : `Import ${lineCount} ${tab === "mnemonic" ? "Phrase" : "Key"}${lineCount !== 1 ? "s" : ""}`}
+            </Button>
           </div>
         )}
       </DialogContent>
@@ -548,55 +418,44 @@ function BulkImportDialog({ onImported }: { onImported: () => void }) {
   );
 }
 
-// ─── Staking rewards panel ────────────────────────────────────────────────────
+// ─── Staking rewards panel ─────────────────────────────────────────────────────
 function WalletStakingPanel({ id }: { id: number }) {
   const { data, isLoading, refetch, isFetching } = useGetWalletStakingRewards(id);
+  const rewards = data?.rewards ?? [];
 
   if (isLoading) {
     return (
       <div className="space-y-2 p-4">
-        {Array.from({ length: 2 }).map((_, i) => <Skeleton key={i} className="h-8 w-full" />)}
+        {Array.from({ length: 2 }).map((_, i) => (
+          <Skeleton key={i} className="h-8 w-full" />
+        ))}
       </div>
     );
   }
-
-  const rewards = data?.rewards ?? [];
 
   return (
     <div className="bg-background/50 border-t border-border/40">
       <div className="flex items-center justify-between px-4 py-2 border-b border-border/30">
         <span className="text-xs font-medium text-muted-foreground flex items-center gap-1">
           <Coins className="h-3 w-3 text-amber-400" />
-          {rewards.length === 0 ? "No pending staking rewards" : `Staking rewards across ${rewards.length} validator(s)`}
+          {rewards.length === 0 ? "No staking rewards" : `${rewards.length} validator${rewards.length !== 1 ? "s" : ""} — Total: ${data?.totalMEC ?? "0"} MEC`}
         </span>
-        <div className="flex items-center gap-3">
-          {data && parseFloat(data.totalMEC) > 0 && (
-            <span className="text-xs font-semibold text-amber-400">
-              Total: {parseFloat(data.totalMEC).toFixed(6)} MEC
-            </span>
-          )}
-          <button
-            onClick={() => refetch()}
-            disabled={isFetching}
-            className="text-muted-foreground hover:text-primary transition-colors disabled:opacity-50"
-            title="Refresh"
-          >
-            <RefreshCw className={`h-3 w-3 ${isFetching ? "animate-spin" : ""}`} />
-          </button>
-        </div>
+        <button onClick={() => refetch()} disabled={isFetching} className="text-muted-foreground hover:text-primary transition-colors disabled:opacity-50" title="Refresh">
+          <RefreshCw className={`h-3 w-3 ${isFetching ? "animate-spin" : ""}`} />
+        </button>
       </div>
       {rewards.length > 0 && (
         <Table>
           <TableHeader>
             <TableRow className="border-border/30 hover:bg-transparent">
               <TableHead className="text-xs py-2 pl-4">Validator</TableHead>
-              <TableHead className="text-xs py-2">Pending Reward</TableHead>
-              <TableHead className="text-xs py-2 pr-4">Raw (umec)</TableHead>
+              <TableHead className="text-xs py-2">Rewards (MEC)</TableHead>
+              <TableHead className="text-xs py-2 pr-4">Raw Amount</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {rewards.map((r) => (
-              <TableRow key={r.validatorAddress} className="border-border/20 hover:bg-muted/30">
+            {rewards.map((r: any, i: number) => (
+              <TableRow key={i} className="border-border/20 hover:bg-muted/30">
                 <TableCell className="py-2 pl-4 font-mono text-xs text-muted-foreground">
                   {r.validatorAddress.slice(0, 16)}…{r.validatorAddress.slice(-6)}
                 </TableCell>
@@ -659,7 +518,7 @@ function WalletTxHistory({ id }: { id: number }) {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {txs.map((tx) => (
+            {txs.map((tx: any) => (
               <TableRow key={tx.txHash} className="border-border/20 hover:bg-muted/30">
                 <TableCell className="py-2 pl-4">
                   {tx.direction === "sent" ? (
@@ -718,7 +577,50 @@ export default function Wallets() {
   const [expandedTxWallet, setExpandedTxWallet] = useState<number | null>(null);
   const [expandedStakingWallet, setExpandedStakingWallet] = useState<number | null>(null);
 
+  // ─── Selection state ────────────────────────────────────────────────────────
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [bulkLoading, setBulkLoading] = useState(false);
+
   const invalidate = () => queryClient.invalidateQueries({ queryKey: getListWalletsQueryKey() });
+
+  const allIds = wallets?.map(w => w.id) ?? [];
+  const allSelected = allIds.length > 0 && allIds.every(id => selected.has(id));
+  const someSelected = selected.size > 0 && !allSelected;
+
+  const toggleSelectAll = () => {
+    if (allSelected) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(allIds));
+    }
+  };
+
+  const toggleSelect = (id: number) => {
+    const s = new Set(selected);
+    s.has(id) ? s.delete(id) : s.add(id);
+    setSelected(s);
+  };
+
+  const handleBulkMonitor = async (monitored: boolean) => {
+    setBulkLoading(true);
+    try {
+      const resp = await authFetch("/api/wallets/bulk-monitor", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ walletIds: Array.from(selected), monitored }),
+      });
+      if (!resp.ok) throw new Error(await resp.text());
+      toast({
+        title: monitored ? "Wallets set to monitored" : "Wallets removed from monitoring",
+        description: `${selected.size} wallet${selected.size !== 1 ? "s" : ""} updated.`,
+      });
+      invalidate();
+      setSelected(new Set());
+    } catch (err) {
+      toast({ title: "Failed to update monitoring", description: String(err), variant: "destructive" });
+    }
+    setBulkLoading(false);
+  };
 
   const handleCreate = () => {
     const data: any = { label, password, network };
@@ -743,12 +645,11 @@ export default function Wallets() {
     );
   };
 
-  // Called by DeriveAccountsDialog after user selects accounts
   const handleDerivedImport = async (accounts: { address: string; hdIndex: number; hdPath: string }[], mnemonicPhrase: string, password: string) => {
     if (!password) return;
     const net = "mainnet";
 
-    const wallets = accounts.map(a => ({
+    const walletList = accounts.map(a => ({
       label: `Account ${a.hdIndex}`,
       mnemonic: mnemonicPhrase,
       address: a.address,
@@ -761,7 +662,7 @@ export default function Wallets() {
       const resp = await authFetch("/api/wallets/import-extension", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ wallets }),
+        body: JSON.stringify({ wallets: walletList }),
       });
       const result = await resp.json();
       toast({ title: "Accounts added", description: `${result.imported} imported, ${result.skipped} already existed.` });
@@ -777,12 +678,19 @@ export default function Wallets() {
     });
   };
 
+  const monitoredCount = wallets?.filter(w => (w as any).monitored).length ?? 0;
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 pb-24">
       <div className="flex justify-between items-start flex-wrap gap-3">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Wallets</h1>
-          <p className="text-muted-foreground mt-1 text-sm">Manage your Meta Earth Coin wallets and derived accounts.</p>
+          <p className="text-muted-foreground mt-1 text-sm">
+            Manage your Meta Earth Coin wallets.
+            {monitoredCount > 0 && (
+              <span className="ml-2 text-primary font-medium">{monitoredCount} monitored</span>
+            )}
+          </p>
         </div>
         <div className="flex gap-2 flex-wrap">
           <ExtensionImportDialog onImported={invalidate} />
@@ -879,6 +787,14 @@ export default function Wallets() {
         <Table>
           <TableHeader>
             <TableRow className="border-border hover:bg-transparent">
+              <TableHead className="w-10 pl-4">
+                <Checkbox
+                  checked={allSelected}
+                  onCheckedChange={toggleSelectAll}
+                  aria-label="Select all wallets"
+                  className={someSelected ? "data-[state=unchecked]:bg-primary/20" : ""}
+                />
+              </TableHead>
               <TableHead>Label</TableHead>
               <TableHead>Address</TableHead>
               <TableHead className="text-center">HD Index</TableHead>
@@ -892,6 +808,7 @@ export default function Wallets() {
             {isLoading ? (
               Array.from({ length: 3 }).map((_, i) => (
                 <TableRow key={i} className="border-border">
+                  <TableCell className="pl-4"><Skeleton className="h-4 w-4" /></TableCell>
                   <TableCell><Skeleton className="h-4 w-24" /></TableCell>
                   <TableCell><Skeleton className="h-4 w-48" /></TableCell>
                   <TableCell><Skeleton className="h-4 w-8 mx-auto" /></TableCell>
@@ -902,7 +819,7 @@ export default function Wallets() {
               ))
             ) : wallets?.length === 0 ? (
               <TableRow className="border-border hover:bg-transparent">
-                <TableCell colSpan={6} className="h-36 text-center">
+                <TableCell colSpan={7} className="h-36 text-center">
                   <div className="flex flex-col items-center gap-3 text-muted-foreground">
                     <WalletIcon className="h-8 w-8 opacity-30" />
                     <div>
@@ -913,105 +830,174 @@ export default function Wallets() {
                 </TableCell>
               </TableRow>
             ) : (
-              wallets?.map((wallet) => (
-                <React.Fragment key={wallet.id}>
-                  <TableRow className="border-border">
-                    <TableCell className="font-medium">
-                      <div className="flex items-center gap-2">
-                        <WalletIcon className="h-4 w-4 text-primary shrink-0" />
-                        <span>{wallet.label}</span>
-                        {wallet.verified === false ? (
-                          <span title="Unverified — address has no on-chain history">
-                            <ShieldOff className="h-3.5 w-3.5 text-amber-400 shrink-0" />
-                          </span>
-                        ) : (
-                          <span title="Verified on-chain">
-                            <ShieldCheck className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
-                          </span>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell className="font-mono text-xs text-muted-foreground">
-                      <div className="flex flex-col gap-0.5">
-                        <div className="flex items-center">
-                          <span className="text-foreground">{wallet.address.slice(0, 10)}…{wallet.address.slice(-6)}</span>
-                          <CopyButton text={wallet.address} />
+              wallets?.map((wallet) => {
+                const isMonitored = (wallet as any).monitored === true;
+                const isSelected = selected.has(wallet.id);
+                return (
+                  <React.Fragment key={wallet.id}>
+                    <TableRow className={`border-border transition-colors ${isSelected ? "bg-primary/5" : ""}`}>
+                      <TableCell className="pl-4">
+                        <Checkbox
+                          checked={isSelected}
+                          onCheckedChange={() => toggleSelect(wallet.id)}
+                          aria-label={`Select ${wallet.label}`}
+                        />
+                      </TableCell>
+                      <TableCell className="font-medium">
+                        <div className="flex items-center gap-2">
+                          <WalletIcon className="h-4 w-4 text-primary shrink-0" />
+                          <span>{wallet.label}</span>
+                          {wallet.verified === false ? (
+                            <span title="Unverified — address has no on-chain history">
+                              <ShieldOff className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+                            </span>
+                          ) : (
+                            <span title="Verified on-chain">
+                              <ShieldCheck className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+                            </span>
+                          )}
+                          {isMonitored && (
+                            <span title="Monitored by agent scheduler">
+                              <Eye className="h-3.5 w-3.5 text-blue-400 shrink-0" />
+                            </span>
+                          )}
                         </div>
-                        {(wallet as any).gcAddress && (
-                          <div className="flex items-center text-[10px] text-muted-foreground/60">
-                            <span className="mr-1 text-primary/50">on-chain:</span>
-                            {(wallet as any).gcAddress.slice(0, 10)}…{(wallet as any).gcAddress.slice(-6)}
-                            <CopyButton text={(wallet as any).gcAddress} />
+                      </TableCell>
+                      <TableCell className="font-mono text-xs text-muted-foreground">
+                        <div className="flex flex-col gap-0.5">
+                          <div className="flex items-center">
+                            <span className="text-foreground">{wallet.address.slice(0, 10)}…{wallet.address.slice(-6)}</span>
+                            <CopyButton text={wallet.address} />
                           </div>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-center">
-                      <span className="font-mono text-xs text-primary bg-primary/10 rounded px-1.5 py-0.5">
-                        #{(wallet as any).hdIndex ?? 0}
-                      </span>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className="text-xs gap-1 border-border/50">
-                        <Network className="h-3 w-3" /> {wallet.network}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <WalletBalanceDisplay id={wallet.id} />
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-0.5">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          title="Staking rewards"
-                          onClick={() => {
-                            setExpandedStakingWallet(expandedStakingWallet === wallet.id ? null : wallet.id);
-                            setExpandedTxWallet(null);
-                          }}
-                          className={expandedStakingWallet === wallet.id ? "text-amber-400 bg-amber-400/10" : "text-muted-foreground"}
-                        >
-                          <Coins className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          title="Transaction history"
-                          onClick={() => {
-                            setExpandedTxWallet(expandedTxWallet === wallet.id ? null : wallet.id);
-                            setExpandedStakingWallet(null);
-                          }}
-                          className={expandedTxWallet === wallet.id ? "text-primary bg-primary/10" : "text-muted-foreground"}
-                        >
-                          <History className="h-4 w-4" />
-                        </Button>
-                        <SendDialog wallet={wallet} allWallets={wallets ?? []} />
-                        <Button variant="ghost" size="icon" onClick={() => handleDelete(wallet.id)} className="text-destructive hover:bg-destructive/10 hover:text-destructive">
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                  {expandedStakingWallet === wallet.id && (
-                    <TableRow key={`staking-${wallet.id}`} className="border-border hover:bg-transparent">
-                      <TableCell colSpan={6} className="p-0">
-                        <WalletStakingPanel id={wallet.id} />
+                          {(wallet as any).gcAddress && (
+                            <div className="flex items-center text-[10px] text-muted-foreground/60">
+                              <span className="mr-1 text-primary/50">on-chain:</span>
+                              {(wallet as any).gcAddress.slice(0, 10)}…{(wallet as any).gcAddress.slice(-6)}
+                              <CopyButton text={(wallet as any).gcAddress} />
+                            </div>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <span className="font-mono text-xs text-primary bg-primary/10 rounded px-1.5 py-0.5">
+                          #{(wallet as any).hdIndex ?? 0}
+                        </span>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="text-xs gap-1 border-border/50">
+                          <Network className="h-3 w-3" /> {wallet.network}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <WalletBalanceDisplay id={wallet.id} />
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex items-center justify-end gap-0.5">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            title={isMonitored ? "Remove from monitoring" : "Add to monitoring"}
+                            onClick={async () => {
+                              await authFetch("/api/wallets/bulk-monitor", {
+                                method: "PATCH",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ walletIds: [wallet.id], monitored: !isMonitored }),
+                              });
+                              invalidate();
+                            }}
+                            className={isMonitored ? "text-blue-400 bg-blue-400/10" : "text-muted-foreground hover:text-blue-400"}
+                          >
+                            {isMonitored ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            title="Staking rewards"
+                            onClick={() => {
+                              setExpandedStakingWallet(expandedStakingWallet === wallet.id ? null : wallet.id);
+                              setExpandedTxWallet(null);
+                            }}
+                            className={expandedStakingWallet === wallet.id ? "text-amber-400 bg-amber-400/10" : "text-muted-foreground"}
+                          >
+                            <Coins className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            title="Transaction history"
+                            onClick={() => {
+                              setExpandedTxWallet(expandedTxWallet === wallet.id ? null : wallet.id);
+                              setExpandedStakingWallet(null);
+                            }}
+                            className={expandedTxWallet === wallet.id ? "text-primary bg-primary/10" : "text-muted-foreground"}
+                          >
+                            <History className="h-4 w-4" />
+                          </Button>
+                          <SendDialog wallet={wallet} allWallets={wallets ?? []} />
+                          <Button variant="ghost" size="icon" onClick={() => handleDelete(wallet.id)} className="text-destructive hover:bg-destructive/10 hover:text-destructive">
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
-                  )}
-                  {expandedTxWallet === wallet.id && (
-                    <TableRow key={`tx-${wallet.id}`} className="border-border hover:bg-transparent">
-                      <TableCell colSpan={6} className="p-0">
-                        <WalletTxHistory id={wallet.id} />
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </React.Fragment>
-              ))
+                    {expandedStakingWallet === wallet.id && (
+                      <TableRow key={`staking-${wallet.id}`} className="border-border hover:bg-transparent">
+                        <TableCell colSpan={7} className="p-0">
+                          <WalletStakingPanel id={wallet.id} />
+                        </TableCell>
+                      </TableRow>
+                    )}
+                    {expandedTxWallet === wallet.id && (
+                      <TableRow key={`tx-${wallet.id}`} className="border-border hover:bg-transparent">
+                        <TableCell colSpan={7} className="p-0">
+                          <WalletTxHistory id={wallet.id} />
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </React.Fragment>
+                );
+              })
             )}
           </TableBody>
         </Table>
       </Card>
+
+      {/* ─── Floating bulk-action bar ─────────────────────────────────────── */}
+      {selected.size > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 bg-card border border-border/60 shadow-2xl rounded-2xl px-5 py-3">
+          <span className="text-sm font-medium text-muted-foreground whitespace-nowrap">
+            {selected.size} wallet{selected.size !== 1 ? "s" : ""} selected
+          </span>
+          <div className="h-4 w-px bg-border" />
+          <Button
+            size="sm"
+            className="gap-2 bg-blue-600 hover:bg-blue-700 text-white"
+            onClick={() => handleBulkMonitor(true)}
+            disabled={bulkLoading}
+          >
+            <Eye className="h-3.5 w-3.5" />
+            Monitor All
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-2"
+            onClick={() => handleBulkMonitor(false)}
+            disabled={bulkLoading}
+          >
+            <EyeOff className="h-3.5 w-3.5" />
+            Unmonitor
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="gap-1 text-muted-foreground"
+            onClick={() => setSelected(new Set())}
+          >
+            <X className="h-3.5 w-3.5" /> Clear
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

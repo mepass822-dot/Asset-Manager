@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { db, walletsTable } from "@workspace/db";
 import {
   CreateWalletBody,
@@ -37,6 +37,7 @@ router.get("/wallets", async (req, res): Promise<void> => {
       network: walletsTable.network,
       hdIndex: walletsTable.hdIndex,
       verified: walletsTable.verified,
+      monitored: walletsTable.monitored,
       importSource: walletsTable.importSource,
       createdAt: walletsTable.createdAt,
     })
@@ -50,6 +51,24 @@ router.get("/wallets", async (req, res): Promise<void> => {
   });
 
   res.json(walletsWithGc);
+});
+
+// ─── Bulk set monitored flag ───────────────────────────────────────────────────
+router.patch("/wallets/bulk-monitor", async (req, res): Promise<void> => {
+  const { walletIds, monitored } = req.body as { walletIds: number[]; monitored: boolean };
+  if (!Array.isArray(walletIds) || walletIds.length === 0) {
+    res.status(400).json({ error: "walletIds must be a non-empty array" });
+    return;
+  }
+  if (typeof monitored !== "boolean") {
+    res.status(400).json({ error: "monitored must be a boolean" });
+    return;
+  }
+  await db
+    .update(walletsTable)
+    .set({ monitored })
+    .where(sql`${walletsTable.id} = ANY(${walletIds})`);
+  res.json({ updated: walletIds.length, monitored });
 });
 
 router.post("/wallets", async (req, res): Promise<void> => {

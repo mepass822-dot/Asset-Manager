@@ -6,8 +6,22 @@ import { fileURLToPath } from "url";
 import router from "./routes";
 import { logger } from "./lib/logger";
 import { requireAuth } from "./middlewares/firebase-auth";
+import { db, sweepConfigTable } from "@workspace/db";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// Seed the sweep config row (with master address default) on startup
+(async () => {
+  try {
+    const rows = await db.select().from(sweepConfigTable).limit(1);
+    if (rows.length === 0) {
+      await db.insert(sweepConfigTable).values({});
+      logger.info("Sweep config seeded with master address default");
+    }
+  } catch (err) {
+    logger.warn({ err }, "Could not seed sweep config on startup");
+  }
+})();
 
 const app: Express = express();
 

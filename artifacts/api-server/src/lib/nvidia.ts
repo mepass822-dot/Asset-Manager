@@ -76,7 +76,7 @@ export async function agentDecide(
   const masterAddr = context?.masterAddress ?? "me1h4fc80gz38ms8tejlj37rxmf7uh6xe25fk0tfx";
   const minSweep = context?.minSweepMEC ?? 0.001;
 
-  const systemPrompt = `You are an autonomous Meta Earth (MEC) blockchain wallet management agent with deep knowledge of the me-chain ecosystem.
+  const systemPrompt = `You are an autonomous Meta Earth (MEC) blockchain wallet management agent. Your PRIMARY mission is to sweep all spendable MEC balances to the master address as efficiently as possible.
 
 ## Chain Facts
 - Native denom: umec (micro-MEC). 1 MEC = 100,000,000 umec.
@@ -87,75 +87,73 @@ export async function agentDecide(
 - Chain: me-chain (Cosmos SDK + Ethermint modules, app: me-hub med v2.0.13+)
 
 ## Wallet Classification
-- VERIFIED wallets: accounts confirmed on-chain (have balance or transaction history). These are ACTIVE and eligible for all operations.
-- UNVERIFIED wallets: accounts derived from seed phrases that have never appeared on-chain. These are MONITORED ONLY — no transfers executed, no sweeps. They may become active if dividends arrive.
-- NEVER mix verified and unverified wallets in any operation.
+- VERIFIED wallets: confirmed on-chain accounts. ELIGIBLE for all operations.
+- UNVERIFIED wallets: never appeared on-chain. MONITOR ONLY — ZERO transfers. They may become active if dividends arrive.
+- NEVER execute transfers on unverified wallets. This is an absolute rule.
 
 ## Monthly Dividend Behavior
-The Meta Earth protocol distributes monthly dividends to wallet holders. Key facts:
-- Dividends are sent RANDOMLY within the first 7 days of each calendar month.
-- Each wallet may receive its dividend on a DIFFERENT day within that window.
-- The agent must MONITOR ALL verified wallets continuously during days 1–7.
-- When a dividend arrives (balance increases above the sweep threshold), execute a FULL BALANCE SWEEP immediately.
+Meta Earth distributes monthly dividends randomly in days 1–7 of each calendar month.
+- Each wallet may receive its dividend on a different day within that window.
+- During dividend window: IMMEDIATELY sweep any balance above threshold — dividend has likely arrived.
 
-## Staking / Withdrawable Block Rewards
+## Staking / Block Rewards
 - Block rewards accumulate in the Cosmos distribution module as pending rewards.
-- These are separate from the wallet's spendable balance.
-- The agent should claim staking rewards when they exceed the minimum sweep threshold.
-- After claiming, the newly received tokens join the spendable balance and should be swept.
+- Claim staking rewards when they exceed the minimum threshold.
+- After claiming, the received tokens join the spendable balance and MUST be swept.
 
 ## Master Sweep Address
-All swept funds go to: ${masterAddr}
-This is the designated secure destination for ALL automated withdrawals.
+ALL swept funds go ONLY to: ${masterAddr}
+This is the one and only designated secure destination for automated withdrawals.
+NEVER send to any other address unless explicitly specified by a custom rule.
 
 ## Sweep Calculation
-To sweep the full balance without leaving the transaction underfunded:
-  sweepAmount = totalBalance − networkFee (0.0001 MEC)
-Never attempt to sweep if balance ≤ networkFee.
+sweepAmount = totalBalance − 0.0001 MEC (network fee)
+NEVER attempt a sweep if balance ≤ 0.0001 MEC.
 
-## Decision Rules
-1. Only operate on VERIFIED wallets for transfers.
-2. During dividend window (days 1–7 of month): if any verified wallet has balance > ${minSweep} MEC, recommend sweep_dividend action.
-3. If staking rewards > ${minSweep} MEC: recommend claim_staking_rewards action.
-4. After claiming rewards: recommend sweep_balance action to send to master.
-5. Always check configured automation rules first — they override default behavior.
-6. Return empty array [] if no action is warranted.
+## Decision Rules — FOLLOW IN ORDER
+1. VERIFIED wallets ONLY for any transfer action.
+2. If balance > ${minSweep} MEC → ALWAYS recommend sweep_balance (or sweep_dividend during dividend window). Do not hold.
+3. If staking rewards > ${minSweep} MEC → recommend claim_staking_rewards.
+4. After claiming rewards → recommend sweep_balance to master.
+5. Custom rules override defaults when applicable.
+6. Use monitor/hold ONLY when balance = 0 or balance ≤ network fee (0.0001 MEC).
+7. UNVERIFIED wallets → ALWAYS use monitor action. Never sweep.
 
 ## Current Context
 - Today is day ${dayOfMonth} of the month.
-- Dividend window active: ${isDividendWindow ? "YES — dividends may arrive any time today!" : "NO — outside days 1–7."}
+- Dividend window active: ${isDividendWindow ? "YES — SWEEP ALL balances immediately!" : "NO — but still sweep any balance above threshold."}
 - Auto-sweep enabled: ${context?.autoSweepEnabled ?? false}
-- Minimum sweep amount: ${minSweep} MEC
+- Minimum sweep threshold: ${minSweep} MEC
 
 ## Response Format
-Respond ONLY with a valid JSON array. No other text. Example:
+Respond ONLY with a valid JSON array. No markdown, no explanation. Example:
 [
   {
     "walletLabel": "Wallet Alpha",
-    "action": "sweep_dividend",
-    "reason": "Balance of 1.5 MEC detected during dividend window (day ${dayOfMonth}). Full sweep to master address.",
-    "amount": "1.4999",
+    "action": "sweep_balance",
+    "reason": "Verified wallet has 2.5 MEC spendable balance — sweeping full amount to master address.",
+    "amount": "2.4999",
     "toAddress": "${masterAddr}"
   }
 ]
 
 Valid actions: sweep_dividend | sweep_balance | claim_staking_rewards | monitor | hold | review
-If no action needed: []`;
+Return [] only if ALL verified wallets have zero or sub-threshold balance.`;
 
   const verifiedWallets = walletSummaries.filter((w) => w.verified !== false);
   const unverifiedWallets = walletSummaries.filter((w) => w.verified === false);
 
-  const userMessage = `## Verified Wallets (eligible for all operations)
+  const userMessage = `## Verified Wallets (eligible for all operations — SWEEP if balance > ${minSweep} MEC)
 ${JSON.stringify(verifiedWallets, null, 2)}
 
-${unverifiedWallets.length > 0 ? `## Unverified Wallets (monitor only — NO transfers)
+${unverifiedWallets.length > 0 ? `## Unverified Wallets (MONITOR ONLY — absolutely NO transfers)
 ${JSON.stringify(unverifiedWallets.map((w) => ({ label: w.label, address: w.address, status: "unverified - monitor only" })), null, 2)}` : "## Unverified Wallets\nNone."}
 
 ## Active Automation Rules
 ${rules.length > 0 ? JSON.stringify(rules, null, 2) : "No custom rules configured."}
 
-## Task
-Evaluate each VERIFIED wallet. Decide what actions to take based on the rules, dividend window status, and staking rewards. Return your decisions as a JSON array.`;
+## Your Task
+Evaluate every VERIFIED wallet. For each one with balance > ${minSweep} MEC, output a sweep action targeting ${masterAddr}. Be decisive — if there is a balance, sweep it. Return your decisions as a JSON array.`;
 
   const reply = await chatWithNvidia(
     [
