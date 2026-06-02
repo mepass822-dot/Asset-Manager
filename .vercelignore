@@ -3,7 +3,6 @@ node_modules
 .cache
 .local
 attached_assets
-artifacts/api-server
 artifacts/mockup-sandbox
 artifacts/dashboard/node_modules
 artifacts/dashboard/dist
