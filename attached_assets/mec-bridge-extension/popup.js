@@ -1,9 +1,15 @@
 const statusEl = document.getElementById("status");
 const exportBtn = document.getElementById("exportBtn");
+const debugEl = document.getElementById("debugInfo");
 
 function showStatus(msg, type) {
   statusEl.textContent = msg;
   statusEl.className = "status " + type;
+}
+
+function showDebug(lines) {
+  debugEl.textContent = lines.join("\n");
+  debugEl.style.display = "block";
 }
 
 function getSavedUrl() {
@@ -15,28 +21,26 @@ getSavedUrl();
 // Try to extract valid wallets from any data blob, regardless of key name or structure
 function extractWallets(data) {
   if (!data) return [];
-
-  // Parse string if needed
   if (typeof data === "string") {
     try { data = JSON.parse(data); } catch (e) { return []; }
   }
 
-  // Case 1: top-level array of wallets e.g. [{mnemonic, accounts}, ...]
+  // Top-level array of wallet objects with a mnemonic
   if (Array.isArray(data)) {
-    const withMnemonic = data.filter(w => w && w.mnemonic);
+    const withMnemonic = data.filter(w => w && (w.mnemonic || w.seed || w.phrase));
     if (withMnemonic.length > 0) return withMnemonic;
 
-    // Case 2: flat array of accounts e.g. [{address, mnemonic}, ...]
-    const withAddress = data.filter(w => w && (w.address || w.mnemonic));
+    // Flat array of accounts
+    const withAddress = data.filter(w => w && w.address && (w.mnemonic || w.seed || w.phrase));
     if (withAddress.length > 0) return withAddress.map(a => ({
       walletName: a.name || a.accountName || a.label || "Imported",
       mnemonic: a.mnemonic || a.seed || a.phrase,
-      accounts: a.address ? [{ address: a.address, accountName: a.name || a.accountName }] : [],
-    })).filter(w => w.mnemonic);
+      accounts: [{ address: a.address, accountName: a.name || a.accountName }],
+    }));
   }
 
-  // Case 3: object with a known array field
-  const arrayFields = ["accountList", "wallets", "accounts", "keyring", "keyrings", "items", "data"];
+  // Object: check known array fields
+  const arrayFields = ["accountList", "wallets", "accounts", "keyring", "keyrings", "items", "data", "list", "vault"];
   for (const field of arrayFields) {
     if (data[field]) {
       const result = extractWallets(data[field]);
@@ -44,7 +48,7 @@ function extractWallets(data) {
     }
   }
 
-  // Case 4: object where values are wallet objects {mnemonic, ...}
+  // Object where values are wallet objects
   const values = Object.values(data);
   const withMnemonic = values.filter(v => v && typeof v === "object" && (v.mnemonic || v.seed || v.phrase));
   if (withMnemonic.length > 0) {
@@ -58,7 +62,6 @@ function extractWallets(data) {
   return [];
 }
 
-// Scan ALL keys in a storage object for wallet data
 function findWalletsInStorage(storageObj) {
   for (const [key, value] of Object.entries(storageObj)) {
     const wallets = extractWallets(value);
@@ -77,10 +80,12 @@ exportBtn.addEventListener("click", async () => {
 
   localStorage.setItem("mec_agent_url", dashboardUrl);
   exportBtn.disabled = true;
-  showStatus("Scanning extension storage for wallets...", "info");
+  debugEl.style.display = "none";
+  showStatus("Scanning extension storage...", "info");
 
-  // Step 1: scan ALL of chrome.storage.local (not just one key)
+  // Step 1: scan ALL of this extension's chrome.storage.local
   chrome.storage.local.get(null, (allStorage) => {
+    const extKeys = Object.keys(allStorage || {});
     const wallets = findWalletsInStorage(allStorage || {});
 
     if (wallets.length > 0) {
@@ -92,17 +97,25 @@ exportBtn.addEventListener("click", async () => {
     showStatus("Scanning active tab storage...", "info");
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       if (!tabs || !tabs[0]) {
-        showStatus("No wallet accounts found. Make sure the Meta Earth wallet tab is open and active, then try again.", "error");
+        showStatus("No active tab found. Open the Meta Earth wallet tab first.", "error");
+        showDebug([
+          "Bridge extension storage keys: " + (extKeys.length ? extKeys.join(", ") : "(empty)"),
+          "No active tab available.",
+        ]);
         exportBtn.disabled = false;
         return;
       }
+
+      const tabUrl = tabs[0].url || "(unknown)";
 
       chrome.scripting.executeScript({
         target: { tabId: tabs[0].id },
         func: () => {
           const result = {};
+          const keys = [];
           for (let i = 0; i < localStorage.length; i++) {
             const key = localStorage.key(i);
+            keys.push(key);
             try {
               const val = localStorage.getItem(key);
               result[key] = val ? JSON.parse(val) : val;
@@ -110,10 +123,13 @@ exportBtn.addEventListener("click", async () => {
               result[key] = localStorage.getItem(key);
             }
           }
-          return result;
+          return { data: result, keys };
         }
       }, (results) => {
-        const tabData = results && results[0] && results[0].result;
+        const tabResult = results && results[0] && results[0].result;
+        const tabData = tabResult ? tabResult.data : null;
+        const tabKeys = tabResult ? tabResult.keys : [];
+
         if (tabData && typeof tabData === "object") {
           const tabWallets = findWalletsInStorage(tabData);
           if (tabWallets.length > 0) {
@@ -122,11 +138,16 @@ exportBtn.addEventListener("click", async () => {
           }
         }
 
-        showStatus(
-          "No wallet data found. Open the Meta Earth wallet website as your active tab, then click Export again. " +
+        // Show diagnostic so the user can report what was found
+        showStatus("No wallet data found in this tab's storage.", "error");
+        showDebug([
+          "Active tab: " + tabUrl,
+          "Tab localStorage keys (" + tabKeys.length + "): " + (tabKeys.length ? tabKeys.join(", ") : "(empty)"),
+          "Bridge extension storage keys: " + (extKeys.length ? extKeys.join(", ") : "(empty)"),
+          "",
+          "Tip: Make sure the Meta Earth wallet website tab is active, not the extension popup.",
           "Or use the manual import option in the dashboard.",
-          "error"
-        );
+        ]);
         exportBtn.disabled = false;
       });
     });
