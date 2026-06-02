@@ -1,0 +1,82 @@
+Staking (sdk.staking)
+stakeFlexible(params)
+Flexible staking (HUB layer).
+
+const txHash = await sdk.staking.stakeFlexible({
+  address: 'metaearth1...',
+  amount: { amount: '1000000', denom: 'umec' },
+  layer: 'hub',
+})
+unstakeFlexible(params)
+Unstake flexible staking (HUB layer).
+
+const txHash = await sdk.staking.unstakeFlexible({
+  address: 'metaearth1...',
+  amount: { amount: '1000000', denom: 'umec' },
+  layer: 'hub',
+})
+getFlexibleDelegation(delegatorAddr, layer?)
+Query flexible delegation.
+
+const delegation = await sdk.staking.getFlexibleDelegation('metaearth1...', 'hub')
+API Endpoint: /metaearth/wstaking/delegation/{delegator_addr}
+
+getFlexibleDelegationRewards(delegatorAddr, layer?)
+Query flexible delegation rewards.
+
+const rewards = await sdk.staking.getFlexibleDelegationRewards('metaearth1...', 'hub')
+API Endpoint: /metaearth/wstaking/delegation-rewards/{delegator_address}
+
+claimStakingReward(address)
+Claim flexible staking rewards (HUB layer).
+
+const txHash = await sdk.staking.claimStakingReward('metaearth1...')
+Governance (sdk.governance)
+getProposals(status?, layer?)
+Query current proposals (HUB layer, using SDK V1 endpoint).
+
+import { ProposalStatus } from 'meta-earth-js-sdk'
+
+// Query all proposals
+const allProposals = await sdk.governance.getProposals()
+
+// Query by status
+const votingProposals = await sdk.governance.getProposals(
+  ProposalStatus.PROPOSAL_STATUS_VOTING_PERIOD,
+)
+API Endpoint: /cosmos/gov/v1/proposals
+
+Supported Proposal Statuses:
+
+PROPOSAL_STATUS_UNSPECIFIED
+PROPOSAL_STATUS_DEPOSIT_PERIOD
+PROPOSAL_STATUS_VOTING_PERIOD
+PROPOSAL_STATUS_PASSED
+PROPOSAL_STATUS_REJECTED
+PROPOSAL_STATUS_FAILED
+submitSoftwareUpgradeProposal(params)
+Submit a software upgrade proposal.
+
+const txHash = await sdk.governance.submitSoftwareUpgradeProposal({
+  proposer: 'mec1...',
+  content: {
+    title: 'Upgrade to v2.0.0',
+    description: 'Upgrade description...',
+    plan: {
+      name: 'v2.0.0',
+      height: 1000000,
+      info: 'Upgrade details',
+    },
+  },
+  initialDeposit: [{ denom: 'umec', amount: '100000000' }],
+})
+console.log('Transaction Hash:', txHash)
+voteProposal(params)
+Vote on a proposal.
+
+const txHash = await sdk.governance.voteProposal({
+  proposalId: 1,
+  voter: 'mec1...',
+  option: 'yes', // 'yes' | 'no' | 'abstain' | 'no_with_veto'
+})
+console.log('Transaction Hash:', txHash)
