@@ -36,11 +36,13 @@ export const ListWalletsResponse = zod.array(ListWalletsResponseItem)
 
 
 
+
 export const createWalletBodyNetworkDefault = `mainnet`;
 
 export const CreateWalletBody = zod.object({
   "label": zod.string().min(1),
-  "mnemonic": zod.string().min(1),
+  "mnemonic": zod.string().min(1).optional(),
+  "privateKey": zod.string().min(1).optional(),
   "password": zod.string().min(1),
   "network": zod.string().default(createWalletBodyNetworkDefault)
 })

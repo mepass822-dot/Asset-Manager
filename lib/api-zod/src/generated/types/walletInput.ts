@@ -10,7 +10,9 @@ export interface WalletInput {
   /** @minLength 1 */
   label: string;
   /** @minLength 1 */
-  mnemonic: string;
+  mnemonic?: string;
+  /** @minLength 1 */
+  privateKey?: string;
   /** @minLength 1 */
   password: string;
   network: string;

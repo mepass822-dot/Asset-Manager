@@ -398,12 +398,15 @@ components:
 
     WalletInput:
       type: object
-      required: [label, mnemonic, password, network]
+      required: [label, password, network]
       properties:
         label:
           type: string
           minLength: 1
         mnemonic:
+          type: string
+          minLength: 1
+        privateKey:
           type: string
           minLength: 1
         password:
