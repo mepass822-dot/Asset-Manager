@@ -360,7 +360,7 @@ function ExtensionImportDialog({ onImported }: { onImported: () => void }) {
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 export default function Wallets() {
-  const { data: wallets, isLoading } = useListWallets();
+  const { data: wallets, isLoading } = useListWallets(undefined, { query: { refetchInterval: 30_000 } });
   const createWallet = useCreateWallet();
   const deleteWallet = useDeleteWallet();
   const queryClient = useQueryClient();

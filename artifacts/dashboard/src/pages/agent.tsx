@@ -14,7 +14,7 @@ import { useToast } from "@/hooks/use-toast";
 import type { AgentRunResult, AgentLog } from "@workspace/api-client-react";
 
 export default function Agent() {
-  const { data: wallets, isLoading: walletsLoading } = useListWallets();
+  const { data: wallets, isLoading: walletsLoading } = useListWallets(undefined, { query: { refetchInterval: 30_000 } });
   const runAgent = useRunAgent();
   const queryClient = useQueryClient();
   const { toast } = useToast();

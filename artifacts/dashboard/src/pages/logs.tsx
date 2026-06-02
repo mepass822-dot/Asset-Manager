@@ -9,16 +9,26 @@ import { Badge } from "@/components/ui/badge";
 export default function Logs() {
   const [walletId, setWalletId] = useState<string>("all");
   
-  const { data: wallets } = useListWallets();
-  const { data: logs, isLoading } = useListAgentLogs(
-    walletId !== "all" ? { walletId: parseInt(walletId) } : undefined
+  const { data: wallets } = useListWallets(undefined, { query: { refetchInterval: 30_000 } });
+  const { data: logs, isLoading, dataUpdatedAt } = useListAgentLogs(
+    walletId !== "all" ? { walletId: parseInt(walletId) } : undefined,
+    { query: { refetchInterval: 10_000 } }
   );
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Activity Logs</h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-3xl font-bold tracking-tight">Activity Logs</h1>
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground mt-1">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+              </span>
+              Live
+            </div>
+          </div>
           <p className="text-muted-foreground mt-1 text-sm">
             Comprehensive audit trail of all agent operations.
           </p>

@@ -5,16 +5,25 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 
 export default function Dashboard() {
-  const { data: stats, isLoading: statsLoading } = useGetAgentStats();
-  const { data: logs, isLoading: logsLoading } = useListAgentLogs({ limit: 5 });
+  const { data: stats, isLoading: statsLoading, dataUpdatedAt } = useGetAgentStats({ query: { refetchInterval: 30_000 } });
+  const { data: logs, isLoading: logsLoading } = useListAgentLogs({ limit: 5 }, { query: { refetchInterval: 10_000 } });
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">System Overview</h1>
-        <p className="text-muted-foreground mt-1 text-sm">
-          Real-time metrics and recent automated activity.
-        </p>
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">System Overview</h1>
+          <p className="text-muted-foreground mt-1 text-sm">
+            Real-time metrics and recent automated activity.
+          </p>
+        </div>
+        <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
+          <span className="relative flex h-2 w-2">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+          </span>
+          Live · updated {dataUpdatedAt ? new Date(dataUpdatedAt).toLocaleTimeString() : "—"}
+        </div>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
