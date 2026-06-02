@@ -5,6 +5,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import router from "./routes";
 import { logger } from "./lib/logger";
+import { requireAuth } from "./middlewares/firebase-auth";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -33,12 +34,18 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Serve bridge extension ZIP for download
+// Serve bridge extension ZIP for download (unauthenticated)
 const bridgeZipPath = path.resolve(process.cwd(), "../../attached_assets/mec-bridge-extension/bridge-extension.zip");
 app.get("/api/wallets/bridge-extension.zip", (_req, res) => {
   res.download(bridgeZipPath, "mec-bridge-extension.zip");
 });
 
-app.use("/api", router);
+// Health check — no auth required
+app.get("/api/healthz", (_req, res) => {
+  res.json({ status: "ok" });
+});
+
+// All other /api routes require a valid Firebase ID token
+app.use("/api", requireAuth, router);
 
 export default app;

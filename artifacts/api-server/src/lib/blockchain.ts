@@ -208,8 +208,9 @@ export interface StakingRewardsResult {
 }
 
 /**
- * Query pending (withdrawable) staking rewards for a delegator across all validators.
- * Uses the Cosmos distribution REST: /cosmos/distribution/v1beta1/delegators/{addr}/rewards
+ * Query withdrawable block rewards using the ME-specific wstaking module.
+ * Endpoint: /metaearth/wstaking/delegation-rewards/{delegator_address}
+ * Response:  {"rewards":[{"denom":"umec","amount":"92554.937262..."}]}
  */
 export async function queryStakingRewards(
   address: string,
@@ -222,43 +223,72 @@ export async function queryStakingRewards(
     queryAddr = toBech32(MEC_PREFIX, data);
   } catch { /* keep */ }
 
-  const url = `${baseUrl}/cosmos/distribution/v1beta1/delegators/${queryAddr}/rewards`;
-  const res = await axios.get(url, {
-    timeout: 10000,
-    headers: { Accept: "application/json" },
-    validateStatus: () => true,
-  });
+  // Primary: ME wstaking module — Withdrawable Block Rewards
+  const wstakingUrl = `${baseUrl}/metaearth/wstaking/delegation-rewards/${queryAddr}`;
+  try {
+    const res = await axios.get(wstakingUrl, {
+      timeout: 10000,
+      headers: { Accept: "application/json" },
+      validateStatus: () => true,
+    });
 
-  // Chain returns 500 (nil pointer dereference) when wallet has no delegations — treat as empty
-  if (res.status >= 400 || !res.data?.rewards) {
-    return { rewards: [], totalMEC: "0.00000000", totalUMec: "0" };
-  }
+    if (res.status === 200 && res.data?.rewards) {
+      const rewardsArr: Array<{ denom: string; amount: string }> = res.data.rewards ?? [];
+      const umecEntry = rewardsArr.find((r) => r.denom === "umec");
+      const totalRaw = umecEntry ? parseFloat(umecEntry.amount) : 0;
 
-  const rewardsArr: any[] = res.data.rewards ?? [];
-  const rewards: StakingReward[] = rewardsArr.map((r: any) => {
-    const umecEntry = (r.reward ?? []).find((x: any) => x.denom === "umec");
-    const rawAmt = umecEntry ? parseFloat(umecEntry.amount) : 0;
-    return {
-      validatorAddress: r.validator_address,
-      amount: (rawAmt / 100_000_000).toFixed(8),
-      amountRaw: Math.floor(rawAmt).toString(),
-    };
-  });
+      return {
+        rewards: totalRaw > 0
+          ? [{
+              validatorAddress: "wstaking",
+              amount: (totalRaw / 100_000_000).toFixed(8),
+              amountRaw: Math.floor(totalRaw).toString(),
+            }]
+          : [],
+        totalMEC: (totalRaw / 100_000_000).toFixed(8),
+        totalUMec: Math.floor(totalRaw).toString(),
+      };
+    }
+  } catch { /* fall through to standard distribution */ }
 
-  const totalArr: any[] = res.data.total ?? [];
-  const totalUmecEntry = totalArr.find((t: any) => t.denom === "umec");
-  const totalRaw = totalUmecEntry ? parseFloat(totalUmecEntry.amount) : 0;
+  // Fallback: standard Cosmos distribution module (validator staking rewards)
+  const distUrl = `${baseUrl}/cosmos/distribution/v1beta1/delegators/${queryAddr}/rewards`;
+  try {
+    const res = await axios.get(distUrl, {
+      timeout: 10000,
+      headers: { Accept: "application/json" },
+      validateStatus: () => true,
+    });
 
-  return {
-    rewards,
-    totalMEC: (totalRaw / 100_000_000).toFixed(8),
-    totalUMec: Math.floor(totalRaw).toString(),
-  };
+    if (res.status === 200 && res.data?.rewards) {
+      const rewardsArr: any[] = res.data.rewards ?? [];
+      const rewards: StakingReward[] = rewardsArr.map((r: any) => {
+        const umecEntry = (r.reward ?? []).find((x: any) => x.denom === "umec");
+        const rawAmt = umecEntry ? parseFloat(umecEntry.amount) : 0;
+        return {
+          validatorAddress: r.validator_address,
+          amount: (rawAmt / 100_000_000).toFixed(8),
+          amountRaw: Math.floor(rawAmt).toString(),
+        };
+      });
+      const totalArr: any[] = res.data.total ?? [];
+      const totalUmecEntry = totalArr.find((t: any) => t.denom === "umec");
+      const totalRaw = totalUmecEntry ? parseFloat(totalUmecEntry.amount) : 0;
+      return {
+        rewards,
+        totalMEC: (totalRaw / 100_000_000).toFixed(8),
+        totalUMec: Math.floor(totalRaw).toString(),
+      };
+    }
+  } catch { /* ignore */ }
+
+  return { rewards: [], totalMEC: "0.00000000", totalUMec: "0" };
 }
 
 /**
- * Claim all pending staking rewards for a delegator from every validator.
- * Sends one MsgWithdrawDelegatorReward per validator in a single batch transaction.
+ * Claim withdrawable block rewards via the ME wstaking module.
+ * Uses /metaearth.wstaking.v1beta1.MsgWithdrawReward — a single message
+ * covering the entire flexible staking reward pool for the delegator.
  */
 export async function claimAllStakingRewards(params: {
   privkeyHex: string;
@@ -267,9 +297,9 @@ export async function claimAllStakingRewards(params: {
 }): Promise<SendResult> {
   const { privkeyHex, delegatorAddress, network = "mainnet" } = params;
 
-  const { rewards } = await queryStakingRewards(delegatorAddress, network);
-  if (rewards.length === 0) {
-    throw new Error("No staking rewards available to claim");
+  const rewardsResult = await queryStakingRewards(delegatorAddress, network);
+  if (rewardsResult.rewards.length === 0 || parseFloat(rewardsResult.totalMEC) === 0) {
+    throw new Error("No withdrawable block rewards available to claim");
   }
 
   const privkey = Buffer.from(privkeyHex, "hex");
@@ -278,20 +308,33 @@ export async function claimAllStakingRewards(params: {
   const client = await SigningStargateClient.connectWithSigner(rpcUrl, wallet, { prefix: MEC_PREFIX });
 
   const delegatorMe = normalizeMeAddress(delegatorAddress);
-  const msgs = rewards.map((r) => ({
-    typeUrl: "/cosmos.distribution.v1beta1.MsgWithdrawDelegatorReward",
-    value: {
-      delegatorAddress: delegatorMe,
-      validatorAddress: r.validatorAddress,
-    },
-  }));
+
+  // Determine whether rewards are from the wstaking module or standard distribution
+  const isWstaking = rewardsResult.rewards.some((r) => r.validatorAddress === "wstaking");
+
+  const msgs = isWstaking
+    ? [
+        {
+          // ME-specific wstaking module: single message, no validator address required
+          typeUrl: "/metaearth.wstaking.v1beta1.MsgWithdrawReward",
+          value: { delegatorAddress: delegatorMe },
+        },
+      ]
+    : rewardsResult.rewards.map((r) => ({
+        // Standard Cosmos distribution fallback
+        typeUrl: "/cosmos.distribution.v1beta1.MsgWithdrawDelegatorReward",
+        value: {
+          delegatorAddress: delegatorMe,
+          validatorAddress: r.validatorAddress,
+        },
+      }));
 
   const fee = {
     amount: [{ denom: "umec", amount: MEC_FEE_UMEC }],
     gas: MEC_GAS_LIMIT,
   };
 
-  const result = await client.signAndBroadcast(delegatorMe, msgs, fee, "auto-claim staking rewards");
+  const result = await client.signAndBroadcast(delegatorMe, msgs, fee, "auto-claim withdrawable block rewards");
 
   if (result.code !== 0) {
     throw new Error(`Claim rewards failed (code ${result.code}): ${result.rawLog ?? "unknown"}`);
