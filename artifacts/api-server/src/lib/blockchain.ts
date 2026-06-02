@@ -1,7 +1,9 @@
 import axios from "axios";
 import { Secp256k1, Bip39, EnglishMnemonic, Slip10, Slip10Curve, stringToPath } from "@cosmjs/crypto";
 import { rawSecp256k1PubkeyToRawAddress } from "@cosmjs/amino";
-import { toBech32 } from "@cosmjs/encoding";
+import { fromBech32, toBech32 } from "@cosmjs/encoding";
+import { DirectSecp256k1Wallet } from "@cosmjs/proto-signing";
+import { SigningStargateClient } from "@cosmjs/stargate";
 
 const MEC_PREFIX = "me";
 const MEC_COIN_TYPE = 118;
@@ -141,6 +143,80 @@ export async function deriveMECAddressAsync(mnemonic: string, index = 0): Promis
   const rawAddr = rawSecp256k1PubkeyToRawAddress(compressed);
   const address = toBech32(MEC_PREFIX, rawAddr);
   return { address, hdIndex: index, hdPath };
+}
+
+// ─── Chain constants ──────────────────────────────────────────────────────────
+// The Meta Earth chain uses "gc" bech32 prefix internally.
+// User-facing addresses use "me" prefix — same bytes, different HRP.
+const MEC_CHAIN_PREFIX = "gc";
+const MEC_RPC = "http://118.175.0.247:26657";
+const MEC_GAS_LIMIT = "500000";
+const MEC_FEE_UMEC = "20000"; // 0.02 MEC
+
+/** Convert a me1... address to gc1... (same 20-byte payload, different prefix). */
+export function meToGcAddress(addr: string): string {
+  const { data } = fromBech32(addr);
+  return toBech32(MEC_CHAIN_PREFIX, data);
+}
+
+/** Derive the raw secp256k1 private key hex from a stored decrypted secret. */
+export async function getPrivateKeyHex(secret: string, hdIndex = 0): Promise<string> {
+  if (secret.startsWith(PRIVATE_KEY_PREFIX)) {
+    return secret.slice(PRIVATE_KEY_PREFIX.length);
+  }
+  // Derive from mnemonic at the given HD index
+  const hdPath = `m/44'/${MEC_COIN_TYPE}'/0'/0/${hdIndex}`;
+  const mnemonicObj = new EnglishMnemonic(secret.trim());
+  const seed = await Bip39.mnemonicToSeed(mnemonicObj);
+  const { privkey } = Slip10.derivePath(Slip10Curve.Secp256k1, seed, stringToPath(hdPath));
+  return Buffer.from(privkey).toString("hex");
+}
+
+export interface SendResult {
+  txHash: string;
+  height: number;
+}
+
+/**
+ * Sign and broadcast a MsgSend transaction on the Meta Earth (gc_20-1) chain.
+ * @param privkeyHex  32-byte private key as lowercase hex
+ * @param fromAddress me1... source address
+ * @param toAddress   me1... destination address
+ * @param amountMEC   amount in MEC (not umec)
+ * @param memo        optional memo string
+ */
+export async function sendMEC(params: {
+  privkeyHex: string;
+  fromAddress: string;
+  toAddress: string;
+  amountMEC: number;
+  memo?: string;
+}): Promise<SendResult> {
+  const { privkeyHex, fromAddress, toAddress, amountMEC, memo = "" } = params;
+
+  const privkey = Buffer.from(privkeyHex, "hex");
+  const wallet = await DirectSecp256k1Wallet.fromKey(privkey, MEC_CHAIN_PREFIX);
+
+  const fromGc = meToGcAddress(fromAddress);
+  const toGc = meToGcAddress(toAddress);
+
+  const client = await SigningStargateClient.connectWithSigner(MEC_RPC, wallet, {
+    prefix: MEC_CHAIN_PREFIX,
+  });
+
+  const amountUMec = Math.floor(amountMEC * 1_000_000).toString();
+  const fee = {
+    amount: [{ denom: "umec", amount: MEC_FEE_UMEC }],
+    gas: MEC_GAS_LIMIT,
+  };
+
+  const result = await client.sendTokens(fromGc, toGc, [{ denom: "umec", amount: amountUMec }], fee, memo);
+
+  if (result.code !== 0) {
+    throw new Error(`Tx failed (code ${result.code}): ${result.rawLog ?? "unknown error"}`);
+  }
+
+  return { txHash: result.transactionHash, height: result.height };
 }
 
 export function deriveMECAddress(mnemonic: string): string {

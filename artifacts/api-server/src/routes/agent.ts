@@ -3,7 +3,7 @@ import { eq, desc, count, and, sql } from "drizzle-orm";
 import { db, walletsTable, agentLogsTable, rulesTable } from "@workspace/db";
 import { RunAgentBody, AgentChatBody, ListAgentLogsQueryParams } from "@workspace/api-zod";
 import { decryptMnemonic } from "../lib/crypto";
-import { queryBalance } from "../lib/blockchain";
+import { queryBalance, sendMEC, getPrivateKeyHex } from "../lib/blockchain";
 import { agentDecide, chatWithNvidia } from "../lib/nvidia";
 import { logger } from "../lib/logger";
 
@@ -100,27 +100,53 @@ router.post("/agent/run", async (req, res): Promise<void> => {
     }
 
     try {
-      decryptMnemonic(wallet.encryptedMnemonic, masterPassword);
-      const log = await db
-        .insert(agentLogsTable)
-        .values({
-          walletId: wallet.id,
-          action: decision.action,
-          status: "success",
-          amount: decision.amount ?? null,
-          message: decision.reason,
-        })
-        .returning();
-      createdLogs.push(...log);
+      const secret = decryptMnemonic(wallet.encryptedMnemonic, masterPassword);
+
+      // If the decision is a withdraw/send action and specifies a destination, broadcast it
+      const isTransfer = /withdraw|send|transfer/i.test(decision.action);
+      const toAddress: string | undefined = (decision as { toAddress?: string }).toAddress;
+
+      if (isTransfer && toAddress && decision.amount) {
+        const privkeyHex = await getPrivateKeyHex(secret, wallet.hdIndex ?? 0);
+        const amountMEC = parseFloat(String(decision.amount));
+        const result = await sendMEC({ privkeyHex, fromAddress: wallet.address, toAddress, amountMEC, memo: `agent: ${decision.reason}` });
+        const log = await db
+          .insert(agentLogsTable)
+          .values({
+            walletId: wallet.id,
+            action: decision.action,
+            status: "success",
+            amount: decision.amount ?? null,
+            txHash: result.txHash,
+            message: `${decision.reason} | TX: ${result.txHash} (block ${result.height})`,
+          })
+          .returning();
+        createdLogs.push(...log);
+      } else {
+        // Non-transfer action (stake, review, etc.) — log as executed without broadcasting
+        const log = await db
+          .insert(agentLogsTable)
+          .values({
+            walletId: wallet.id,
+            action: decision.action,
+            status: "success",
+            amount: decision.amount ?? null,
+            message: decision.reason,
+          })
+          .returning();
+        createdLogs.push(...log);
+      }
       executed++;
-    } catch {
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const isWrongPwd = msg.includes("decrypt") || msg.includes("password") || msg.includes("decipher");
       const log = await db
         .insert(agentLogsTable)
         .values({
           walletId: wallet.id,
           action: decision.action,
           status: "error",
-          message: "Failed to decrypt wallet — incorrect password",
+          message: isWrongPwd ? "Failed to decrypt wallet — incorrect password" : `Send failed: ${msg}`,
         })
         .returning();
       createdLogs.push(...log);

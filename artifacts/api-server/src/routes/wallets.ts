@@ -7,8 +7,8 @@ import {
   DeleteWalletParams,
   GetWalletBalanceParams,
 } from "@workspace/api-zod";
-import { encryptMnemonic } from "../lib/crypto";
-import { queryBalance, deriveMECAddressAsync, deriveMultipleAccounts, deriveAddressFromPrivateKey, PRIVATE_KEY_PREFIX } from "../lib/blockchain";
+import { encryptMnemonic, decryptMnemonic } from "../lib/crypto";
+import { queryBalance, deriveMECAddressAsync, deriveMultipleAccounts, deriveAddressFromPrivateKey, PRIVATE_KEY_PREFIX, sendMEC, getPrivateKeyHex } from "../lib/blockchain";
 
 const router = Router();
 
@@ -154,6 +154,61 @@ router.get("/wallets/:id/balance", async (req, res): Promise<void> => {
     denom: balanceInfo.denom,
     usdValue: null,
   });
+});
+
+// Send MEC from a wallet to a destination address
+router.post("/wallets/:id/send", async (req, res): Promise<void> => {
+  const id = parseInt(req.params.id, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid wallet id" }); return; }
+
+  const { toAddress, amountMEC, masterPassword, memo } = req.body as {
+    toAddress: string;
+    amountMEC: number;
+    masterPassword: string;
+    memo?: string;
+  };
+
+  if (!toAddress || !amountMEC || !masterPassword) {
+    res.status(400).json({ error: "toAddress, amountMEC, and masterPassword are required" });
+    return;
+  }
+  if (!toAddress.startsWith("me1")) {
+    res.status(400).json({ error: "toAddress must be a valid me1... address" });
+    return;
+  }
+  if (amountMEC <= 0) {
+    res.status(400).json({ error: "amountMEC must be greater than 0" });
+    return;
+  }
+
+  const [wallet] = await db.select().from(walletsTable).where(eq(walletsTable.id, id));
+  if (!wallet) { res.status(404).json({ error: "Wallet not found" }); return; }
+
+  let secret: string;
+  try {
+    secret = decryptMnemonic(wallet.encryptedMnemonic, masterPassword);
+  } catch {
+    res.status(401).json({ error: "Incorrect password — could not decrypt wallet" });
+    return;
+  }
+
+  let privkeyHex: string;
+  try {
+    privkeyHex = await getPrivateKeyHex(secret, wallet.hdIndex ?? 0);
+  } catch (err) {
+    res.status(400).json({ error: `Key derivation failed: ${err instanceof Error ? err.message : String(err)}` });
+    return;
+  }
+
+  try {
+    const result = await sendMEC({ privkeyHex, fromAddress: wallet.address, toAddress, amountMEC, memo });
+    req.log.info({ walletId: id, txHash: result.txHash, amountMEC, toAddress }, "MEC sent");
+    res.json({ txHash: result.txHash, height: result.height, fromAddress: wallet.address, toAddress, amountMEC });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    req.log.error({ walletId: id, err: msg }, "Send failed");
+    res.status(500).json({ error: msg });
+  }
 });
 
 // Preview derived accounts from a mnemonic without saving them
