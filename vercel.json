@@ -5,7 +5,8 @@
   "framework": null,
   "env": {
     "PORT": "3000",
-    "BASE_PATH": "/"
+    "BASE_PATH": "/",
+    "VITE_API_URL": "https://asset-manager-api-server-two.vercel.app"
   },
   "rewrites": [
     { "source": "/api/:path*", "destination": "https://asset-manager-api-server-two.vercel.app/api/:path*" },
