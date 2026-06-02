@@ -55,5 +55,9 @@ Thumbs.db
 # Local env files with secrets — never commit
 .env
 .env.*
-!.env.vercel
 .env*
+
+# env/ folder — allow template files, block files with real secrets
+!env/
+env/*.local
+env/.env.local*
