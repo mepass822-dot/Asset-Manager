@@ -3,7 +3,7 @@
   "name": "MEC Agent Bridge",
   "version": "1.0.0",
   "description": "Exports your Meta Earth Wallet accounts to the MEC Agent Ops dashboard",
-  "permissions": ["storage", "activeTab"],
+  "permissions": ["storage", "activeTab", "scripting"],
   "action": {
     "default_popup": "popup.html",
     "default_icon": "icon.png",
