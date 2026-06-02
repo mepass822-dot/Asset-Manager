@@ -3,13 +3,20 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Meta Earth Wallet Agent API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: wallets
+    description: Wallet management
+  - name: agent
+    description: AI agent operations
+  - name: rules
+    description: Agent automation rules
+
 paths:
   /healthz:
     get:
@@ -24,6 +31,247 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /wallets:
+    get:
+      operationId: listWallets
+      tags: [wallets]
+      summary: List all wallets
+      responses:
+        "200":
+          description: List of wallets
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Wallet"
+    post:
+      operationId: createWallet
+      tags: [wallets]
+      summary: Add a wallet (mnemonic encrypted and stored)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WalletInput"
+      responses:
+        "201":
+          description: Wallet created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Wallet"
+        "400":
+          description: Invalid input
+
+  /wallets/{id}:
+    get:
+      operationId: getWallet
+      tags: [wallets]
+      summary: Get a wallet by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Wallet
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Wallet"
+        "404":
+          description: Not found
+    delete:
+      operationId: deleteWallet
+      tags: [wallets]
+      summary: Remove a wallet
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+
+  /wallets/{id}/balance:
+    get:
+      operationId: getWalletBalance
+      tags: [wallets]
+      summary: Fetch live MEC balance from blockchain
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Balance info
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WalletBalance"
+        "404":
+          description: Not found
+
+  /agent/run:
+    post:
+      operationId: runAgent
+      tags: [agent]
+      summary: Trigger the AI agent to evaluate and execute actions
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentRunInput"
+      responses:
+        "200":
+          description: Agent run result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentRunResult"
+
+  /agent/chat:
+    post:
+      operationId: agentChat
+      tags: [agent]
+      summary: Chat with the NVIDIA-powered agent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentChatInput"
+      responses:
+        "200":
+          description: Agent response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentChatResult"
+
+  /agent/logs:
+    get:
+      operationId: listAgentLogs
+      tags: [agent]
+      summary: Get agent activity logs
+      parameters:
+        - name: walletId
+          in: query
+          schema:
+            type: ["integer", "null"]
+        - name: limit
+          in: query
+          schema:
+            type: ["integer", "null"]
+      responses:
+        "200":
+          description: Agent logs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AgentLog"
+
+  /agent/stats:
+    get:
+      operationId: getAgentStats
+      tags: [agent]
+      summary: Get agent summary stats
+      responses:
+        "200":
+          description: Stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentStats"
+
+  /rules:
+    get:
+      operationId: listRules
+      tags: [rules]
+      summary: List automation rules
+      responses:
+        "200":
+          description: Rules
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Rule"
+    post:
+      operationId: createRule
+      tags: [rules]
+      summary: Create an automation rule
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RuleInput"
+      responses:
+        "201":
+          description: Rule created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Rule"
+
+  /rules/{id}:
+    patch:
+      operationId: updateRule
+      tags: [rules]
+      summary: Update a rule
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RuleUpdate"
+      responses:
+        "200":
+          description: Updated rule
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Rule"
+        "404":
+          description: Not found
+    delete:
+      operationId: deleteRule
+      tags: [rules]
+      summary: Delete a rule
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +282,187 @@ components:
       required:
         - status
 
+    Wallet:
+      type: object
+      required: [id, label, address, network, createdAt]
+      properties:
+        id:
+          type: integer
+        label:
+          type: string
+        address:
+          type: string
+        network:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    WalletInput:
+      type: object
+      required: [label, mnemonic, password, network]
+      properties:
+        label:
+          type: string
+          minLength: 1
+        mnemonic:
+          type: string
+          minLength: 1
+        password:
+          type: string
+          minLength: 1
+        network:
+          type: string
+          default: mainnet
+
+    WalletBalance:
+      type: object
+      required: [walletId, address, balance, denom]
+      properties:
+        walletId:
+          type: integer
+        address:
+          type: string
+        balance:
+          type: string
+        denom:
+          type: string
+        usdValue:
+          type: ["string", "null"]
+
+    AgentRunInput:
+      type: object
+      required: [walletIds, masterPassword]
+      properties:
+        walletIds:
+          type: array
+          items:
+            type: integer
+        masterPassword:
+          type: string
+        dryRun:
+          type: boolean
+          default: false
+
+    AgentRunResult:
+      type: object
+      required: [executed, skipped, logs]
+      properties:
+        executed:
+          type: integer
+        skipped:
+          type: integer
+        logs:
+          type: array
+          items:
+            $ref: "#/components/schemas/AgentLog"
+
+    AgentChatInput:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+        walletContext:
+          type: ["boolean", "null"]
+
+    AgentChatResult:
+      type: object
+      required: [reply]
+      properties:
+        reply:
+          type: string
+        suggestedActions:
+          type: array
+          items:
+            type: string
+
+    AgentLog:
+      type: object
+      required: [id, action, status, message, createdAt]
+      properties:
+        id:
+          type: integer
+        walletId:
+          type: ["integer", "null"]
+        walletLabel:
+          type: ["string", "null"]
+        action:
+          type: string
+        status:
+          type: string
+        txHash:
+          type: ["string", "null"]
+        amount:
+          type: ["string", "null"]
+        message:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    AgentStats:
+      type: object
+      required: [totalWallets, totalWithdrawals, successfulWithdrawals, failedWithdrawals, activeRules]
+      properties:
+        totalWallets:
+          type: integer
+        totalWithdrawals:
+          type: integer
+        successfulWithdrawals:
+          type: integer
+        failedWithdrawals:
+          type: integer
+        activeRules:
+          type: integer
+        lastRunAt:
+          type: ["string", "null"]
+
+    Rule:
+      type: object
+      required: [id, name, ruleType, enabled, createdAt]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        ruleType:
+          type: string
+        enabled:
+          type: boolean
+        conditionJson:
+          type: ["string", "null"]
+        actionJson:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+          format: date-time
+
+    RuleInput:
+      type: object
+      required: [name, ruleType]
+      properties:
+        name:
+          type: string
+          minLength: 1
+        ruleType:
+          type: string
+        enabled:
+          type: boolean
+          default: true
+        conditionJson:
+          type: string
+        actionJson:
+          type: string
+
+    RuleUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        enabled:
+          type: boolean
+        conditionJson:
+          type: string
+        actionJson:
+          type: string
