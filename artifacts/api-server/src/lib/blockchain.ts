@@ -16,18 +16,14 @@ export const PRIVATE_KEY_PREFIX = "pk:";
 
 // Ordered list of endpoints to try for each network.
 // The chain native denom is "ugc" (micro-GC), displayed as MEC to users.
-// Direct RPC REST (118.175.0.247:1317) is the most reliable source.
+// NOTE: all endpoints only accept gc1... addresses (not me1...).
+// Dead/unreachable endpoints have been removed to avoid multi-second timeouts.
 const MAINNET_ENDPOINTS = [
-  { base: "http://118.175.0.247:1317",            path: (a: string) => `/cosmos/bank/v1beta1/balances/${a}`,       type: "cosmos" as const },
-  { base: "https://me-explorer.me-network.me",    path: (a: string) => `/cosmos/bank/v1beta1/balances/${a}`,       type: "cosmos" as const },
-  { base: "https://gateway.me-network.me",        path: (a: string) => `/api/cosmos/bank/v1beta1/balances/${a}`,   type: "cosmos" as const },
-  { base: "https://nexus.me-network.me",          path: (a: string) => `/api/me/balances/${a}`,                    type: "custom" as const },
-  { base: "https://gateway.me-network.me",        path: (a: string) => `/api/me/balances/${a}`,                    type: "custom" as const },
+  { base: "http://118.175.0.247:1317",  path: (a: string) => `/cosmos/bank/v1beta1/balances/${a}`, type: "cosmos" as const },
 ];
 
 const TESTNET_ENDPOINTS = [
-  { base: "https://nexus-beta.explorer-testnet.me", path: (a: string) => `/api/me/balances/${a}`,                  type: "custom" as const },
-  { base: "https://explorer-beta.explorer-testnet.me", path: (a: string) => `/cosmos/bank/v1beta1/balances/${a}`, type: "cosmos" as const },
+  { base: "http://118.175.0.247:1317",  path: (a: string) => `/cosmos/bank/v1beta1/balances/${a}`, type: "cosmos" as const },
 ];
 
 export interface BalanceResult {
@@ -94,8 +90,8 @@ export async function queryBalance(address: string, network: string): Promise<Ba
 
   for (const ep of endpoints) {
     try {
-      // Use gc1 address for the direct RPC REST endpoint; original for custom APIs
-      const queryAddr = ep.base.includes("118.175.0.247") ? gcAddress : address;
+      // All RPC endpoints only accept gc1... addresses, never me1...
+      const queryAddr = gcAddress;
       const url = ep.base + ep.path(queryAddr);
       const res = await axios.get(url, {
         timeout: 8000,

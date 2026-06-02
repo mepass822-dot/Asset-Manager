@@ -329,16 +329,20 @@ router.post("/wallets/import-extension", async (req, res): Promise<void> => {
           } else { skipped++; continue; }
         }
       } else {
-        // Mnemonic import path
-        try {
-          const derived = await deriveMECAddressAsync(w.mnemonic!, hdIndex);
-          address = derived.address;
+        // Mnemonic import path.
+        // Always prefer the address the extension exported — it knows the exact
+        // HD path and coin type it used.  Only derive if no address was provided.
+        if (w.address) {
+          address = w.address;
           secretToEncrypt = w.mnemonic!;
-        } catch {
-          if (w.address) {
-            address = w.address;
+        } else {
+          try {
+            const derived = await deriveMECAddressAsync(w.mnemonic!, hdIndex);
+            address = derived.address;
             secretToEncrypt = w.mnemonic!;
-          } else { skipped++; continue; }
+          } catch {
+            skipped++; continue;
+          }
         }
       }
 
