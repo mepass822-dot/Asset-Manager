@@ -1,8 +1,12 @@
 import express, { type Express } from "express";
 import cors from "cors";
 import pinoHttp from "pino-http";
+import path from "path";
+import { fileURLToPath } from "url";
 import router from "./routes";
 import { logger } from "./lib/logger";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const app: Express = express();
 
@@ -28,6 +32,12 @@ app.use(
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Serve bridge extension ZIP for download
+const bridgeZipPath = path.resolve(process.cwd(), "../../attached_assets/mec-bridge-extension/bridge-extension.zip");
+app.get("/api/wallets/bridge-extension.zip", (_req, res) => {
+  res.download(bridgeZipPath, "mec-bridge-extension.zip");
+});
 
 app.use("/api", router);
 

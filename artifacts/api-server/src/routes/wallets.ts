@@ -127,4 +127,53 @@ router.get("/wallets/:id/balance", async (req, res): Promise<void> => {
   });
 });
 
+router.post("/wallets/import-extension", async (req, res): Promise<void> => {
+  const { wallets } = req.body as {
+    wallets: Array<{
+      label: string;
+      mnemonic: string;
+      priv?: string;
+      address?: string;
+      password: string;
+      network: string;
+    }>;
+  };
+
+  if (!Array.isArray(wallets) || wallets.length === 0) {
+    res.status(400).json({ error: "No wallets provided" });
+    return;
+  }
+
+  let imported = 0;
+  let skipped = 0;
+
+  for (const w of wallets) {
+    if (!w.mnemonic || !w.password) { skipped++; continue; }
+    try {
+      const address = w.address || deriveMECAddress(w.mnemonic);
+      const existing = await db
+        .select({ id: walletsTable.id })
+        .from(walletsTable)
+        .where(eq(walletsTable.address, address));
+
+      if (existing.length > 0) { skipped++; continue; }
+
+      const encryptedMnemonic = encryptMnemonic(w.mnemonic, w.password);
+      const label = w.label || `Imported ${address.slice(0, 8)}`;
+      await db.insert(walletsTable).values({
+        label,
+        address,
+        encryptedMnemonic,
+        network: w.network || "mainnet",
+      });
+      imported++;
+    } catch {
+      skipped++;
+    }
+  }
+
+  req.log.info({ imported, skipped }, "Extension import complete");
+  res.json({ imported, skipped });
+});
+
 export default router;
