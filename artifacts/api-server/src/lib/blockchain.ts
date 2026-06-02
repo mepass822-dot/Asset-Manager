@@ -5,6 +5,20 @@ import { fromBech32, toBech32 } from "@cosmjs/encoding";
 import { DirectSecp256k1Wallet } from "@cosmjs/proto-signing";
 import { SigningStargateClient } from "@cosmjs/stargate";
 
+// ─── Meta Earth (gc_20-1) Chain Constants ─────────────────────────────────────
+//
+// Confirmed by direct chain probing:
+//   Chain ID  : gc_20-1
+//   App       : gead v1.1.2-callisto-5
+//   Consensus : CometBFT 0.37.5 (pure Cosmos SDK — NO EVM/Ethermint module)
+//   Bech32    : "gc" prefix on-chain, "me" prefix user-facing (same raw bytes)
+//   Native denom: "ugc" (micro-GC) — total supply ~100 trillion ugc
+//   HD coin type: 118 (standard Cosmos — NOT 60, as there is no EVM module)
+//   REST LCD  : http://118.175.0.247:1317  (only working public endpoint)
+//   RPC       : http://118.175.0.247:26657
+//
+// Docs: https://docs.mec.me
+
 const MEC_PREFIX = "me";
 const MEC_COIN_TYPE = 118;
 
@@ -14,16 +28,14 @@ const MEC_COIN_TYPE = 118;
  */
 export const PRIVATE_KEY_PREFIX = "pk:";
 
-// Ordered list of endpoints to try for each network.
-// The chain native denom is "ugc" (micro-GC), displayed as MEC to users.
-// NOTE: all endpoints only accept gc1... addresses (not me1...).
-// Dead/unreachable endpoints have been removed to avoid multi-second timeouts.
+// The REST LCD only accepts gc1... bech32 addresses.
+// me1... and gc1... are identical raw bytes — just different HRP.
 const MAINNET_ENDPOINTS = [
-  { base: "http://118.175.0.247:1317",  path: (a: string) => `/cosmos/bank/v1beta1/balances/${a}`, type: "cosmos" as const },
+  { base: "http://118.175.0.247:1317", path: (a: string) => `/cosmos/bank/v1beta1/balances/${a}`, type: "cosmos" as const },
 ];
 
 const TESTNET_ENDPOINTS = [
-  { base: "http://118.175.0.247:1317",  path: (a: string) => `/cosmos/bank/v1beta1/balances/${a}`, type: "cosmos" as const },
+  { base: "http://118.175.0.247:1317", path: (a: string) => `/cosmos/bank/v1beta1/balances/${a}`, type: "cosmos" as const },
 ];
 
 export interface BalanceResult {
