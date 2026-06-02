@@ -1,15 +1,16 @@
 {
-  "installCommand": "pnpm install --frozen-lockfile",
-  "buildCommand": "pnpm --filter @workspace/db run push-force && pnpm --filter @workspace/dashboard run build",
-  "outputDirectory": "artifacts/dashboard/dist/public",
+  "version": 2,
   "framework": null,
-  "env": {
-    "PORT": "3000",
-    "BASE_PATH": "/",
-    "VITE_API_URL": "https://asset-manager-api-server-two.vercel.app"
+  "installCommand": "pnpm install --frozen-lockfile",
+  "buildCommand": "pnpm --filter @workspace/dashboard run build && pnpm --filter @workspace/api-server run build && mkdir -p api && cp artifacts/api-server/api/index.js api/index.js",
+  "outputDirectory": "artifacts/dashboard/dist/public",
+  "functions": {
+    "api/index.js": {
+      "maxDuration": 30
+    }
   },
   "rewrites": [
-    { "source": "/api/:path*", "destination": "https://asset-manager-api-server-two.vercel.app/api/:path*" },
+    { "source": "/api/:path*", "destination": "/api/index" },
     { "source": "/(.*)", "destination": "/index.html" }
   ],
   "headers": [

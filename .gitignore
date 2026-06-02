@@ -5,6 +5,9 @@ dist
 tmp
 out-tsc
 *.tsbuildinfo
+
+# Vercel build output (generated during `vercel build`)
+/api/index.js
 .expo
 .expo-shared
 
