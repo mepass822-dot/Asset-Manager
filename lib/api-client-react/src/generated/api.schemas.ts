@@ -145,6 +145,32 @@ export interface RuleUpdate {
   actionJson?: string;
 }
 
+export type WalletTransactionDirection = typeof WalletTransactionDirection[keyof typeof WalletTransactionDirection];
+
+
+export const WalletTransactionDirection = {
+  sent: 'sent',
+  received: 'received',
+} as const;
+
+export interface WalletTransaction {
+  txHash: string;
+  height: number;
+  timestamp: string;
+  direction: WalletTransactionDirection;
+  amount: string;
+  amountRaw: string;
+  counterpart: string;
+  memo: string;
+  success: boolean;
+}
+
+export interface WalletTransactionList {
+  walletId: number;
+  address: string;
+  transactions: WalletTransaction[];
+}
+
 export interface WhitelistEntry {
   id: number;
   address: string;
@@ -158,6 +184,10 @@ export interface WhitelistInput {
   /** @minLength 1 */
   label: string;
 }
+
+export type GetWalletTransactionsParams = {
+limit?: number;
+};
 
 export type ListAgentLogsParams = {
 /**

@@ -125,6 +125,32 @@ paths:
         "404":
           description: Not found
 
+  /wallets/{id}/transactions:
+    get:
+      operationId: getWalletTransactions
+      tags: [wallets]
+      summary: Fetch on-chain transaction history for a wallet
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 25
+      responses:
+        "200":
+          description: Transaction list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WalletTransactionList"
+        "404":
+          description: Not found
+
   /agent/run:
     post:
       operationId: runAgent
@@ -610,6 +636,43 @@ components:
           type: string
         actionJson:
           type: string
+
+    WalletTransaction:
+      type: object
+      required: [txHash, height, timestamp, direction, amount, amountRaw, counterpart, memo, success]
+      properties:
+        txHash:
+          type: string
+        height:
+          type: integer
+        timestamp:
+          type: string
+        direction:
+          type: string
+          enum: [sent, received]
+        amount:
+          type: string
+        amountRaw:
+          type: string
+        counterpart:
+          type: string
+        memo:
+          type: string
+        success:
+          type: boolean
+
+    WalletTransactionList:
+      type: object
+      required: [walletId, address, transactions]
+      properties:
+        walletId:
+          type: integer
+        address:
+          type: string
+        transactions:
+          type: array
+          items:
+            $ref: "#/components/schemas/WalletTransaction"
 
     WhitelistEntry:
       type: object

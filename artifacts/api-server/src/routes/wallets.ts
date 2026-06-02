@@ -8,7 +8,7 @@ import {
   GetWalletBalanceParams,
 } from "@workspace/api-zod";
 import { encryptMnemonic, decryptMnemonic } from "../lib/crypto";
-import { queryBalance, deriveMECAddressAsync, deriveMultipleAccounts, deriveAddressFromPrivateKey, PRIVATE_KEY_PREFIX, sendMEC, getPrivateKeyHex, normalizeMeAddress, gcAddressFromPrivkeyHex } from "../lib/blockchain";
+import { queryBalance, queryTransactions, deriveMECAddressAsync, deriveMultipleAccounts, deriveAddressFromPrivateKey, PRIVATE_KEY_PREFIX, sendMEC, getPrivateKeyHex, normalizeMeAddress, gcAddressFromPrivkeyHex } from "../lib/blockchain";
 import { whitelistTable } from "@workspace/db";
 
 const meToGcAddress = normalizeMeAddress;
@@ -137,6 +137,19 @@ router.delete("/wallets/:id", async (req, res): Promise<void> => {
   }
 
   res.sendStatus(204);
+});
+
+router.get("/wallets/:id/transactions", async (req, res): Promise<void> => {
+  const id = parseInt(req.params.id, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+
+  const [wallet] = await db.select().from(walletsTable).where(eq(walletsTable.id, id));
+  if (!wallet) { res.status(404).json({ error: "Wallet not found" }); return; }
+
+  const limit = Math.min(parseInt(String(req.query.limit ?? "25"), 10) || 25, 100);
+  const transactions = await queryTransactions(wallet.address, wallet.network ?? "mainnet", limit);
+
+  res.json({ walletId: wallet.id, address: wallet.address, transactions });
 });
 
 router.get("/wallets/:id/balance", async (req, res): Promise<void> => {

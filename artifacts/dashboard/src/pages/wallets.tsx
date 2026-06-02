@@ -1,6 +1,6 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useListWallets, useCreateWallet, useDeleteWallet, useGetWalletBalance, getListWalletsQueryKey } from "@workspace/api-client-react";
+import { useListWallets, useCreateWallet, useDeleteWallet, useGetWalletBalance, useGetWalletTransactions, getListWalletsQueryKey } from "@workspace/api-client-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,11 +8,12 @@ import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Plus, Trash2, Wallet as WalletIcon, Network, Download, Puzzle, ChevronRight, Copy, Check, Hash, Layers, KeyRound, BookText } from "lucide-react";
+import { Plus, Trash2, Wallet as WalletIcon, Network, Download, Puzzle, ChevronRight, ChevronDown, Copy, Check, Hash, Layers, KeyRound, BookText, ArrowUpRight, ArrowDownLeft, History, ExternalLink, RefreshCw } from "lucide-react";
 import { SendDialog } from "@/components/send-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import { format } from "date-fns";
 
 function WalletBalanceDisplay({ id }: { id: number }) {
   const { data: balance, isLoading } = useGetWalletBalance(id);
@@ -359,9 +360,94 @@ function ExtensionImportDialog({ onImported }: { onImported: () => void }) {
   );
 }
 
+// ─── Transaction history panel ────────────────────────────────────────────────
+function WalletTxHistory({ id }: { id: number }) {
+  const { data, isLoading, refetch, isFetching } = useGetWalletTransactions(id);
+  const txs = data?.transactions ?? [];
+
+  if (isLoading) {
+    return (
+      <div className="space-y-2 p-4">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <Skeleton key={i} className="h-9 w-full" />
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-background/50 border-t border-border/40">
+      <div className="flex items-center justify-between px-4 py-2 border-b border-border/30">
+        <span className="text-xs font-medium text-muted-foreground">
+          {txs.length === 0 ? "No transactions found" : `${txs.length} recent transaction${txs.length !== 1 ? "s" : ""}`}
+        </span>
+        <button
+          onClick={() => refetch()}
+          disabled={isFetching}
+          className="text-muted-foreground hover:text-primary transition-colors disabled:opacity-50"
+          title="Refresh"
+        >
+          <RefreshCw className={`h-3 w-3 ${isFetching ? "animate-spin" : ""}`} />
+        </button>
+      </div>
+
+      {txs.length > 0 && (
+        <Table>
+          <TableHeader>
+            <TableRow className="border-border/30 hover:bg-transparent">
+              <TableHead className="text-xs py-2 pl-4 w-6"></TableHead>
+              <TableHead className="text-xs py-2">Amount</TableHead>
+              <TableHead className="text-xs py-2">Counterpart</TableHead>
+              <TableHead className="text-xs py-2">Memo</TableHead>
+              <TableHead className="text-xs py-2">Date</TableHead>
+              <TableHead className="text-xs py-2 pr-4">Tx Hash</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {txs.map((tx) => (
+              <TableRow key={tx.txHash} className="border-border/20 hover:bg-muted/30">
+                <TableCell className="py-2 pl-4">
+                  {tx.direction === "sent" ? (
+                    <ArrowUpRight className="h-3.5 w-3.5 text-rose-400" />
+                  ) : (
+                    <ArrowDownLeft className="h-3.5 w-3.5 text-emerald-400" />
+                  )}
+                </TableCell>
+                <TableCell className="py-2 font-mono text-xs">
+                  <span className={tx.direction === "sent" ? "text-rose-400" : "text-emerald-400"}>
+                    {tx.direction === "sent" ? "−" : "+"}{parseFloat(tx.amount).toFixed(6)} MEC
+                  </span>
+                </TableCell>
+                <TableCell className="py-2 font-mono text-xs text-muted-foreground">
+                  <div className="flex items-center gap-1">
+                    <span>{tx.counterpart.slice(0, 10)}…{tx.counterpart.slice(-5)}</span>
+                    <CopyButton text={tx.counterpart} />
+                  </div>
+                </TableCell>
+                <TableCell className="py-2 text-xs text-muted-foreground max-w-[120px] truncate">
+                  {tx.memo || <span className="opacity-40">—</span>}
+                </TableCell>
+                <TableCell className="py-2 text-xs text-muted-foreground whitespace-nowrap">
+                  {tx.timestamp ? format(new Date(tx.timestamp), "MMM d, yyyy HH:mm") : "—"}
+                </TableCell>
+                <TableCell className="py-2 pr-4">
+                  <div className="flex items-center gap-1 font-mono text-xs text-muted-foreground">
+                    <span>{tx.txHash.slice(0, 8)}…</span>
+                    <CopyButton text={tx.txHash} />
+                  </div>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      )}
+    </div>
+  );
+}
+
 // ─── Main page ────────────────────────────────────────────────────────────────
 export default function Wallets() {
-  const { data: wallets, isLoading } = useListWallets(undefined, { query: { refetchInterval: 30_000 } });
+  const { data: wallets, isLoading } = useListWallets();
   const createWallet = useCreateWallet();
   const deleteWallet = useDeleteWallet();
   const queryClient = useQueryClient();
@@ -374,6 +460,7 @@ export default function Wallets() {
   const [addMode, setAddMode] = useState<"mnemonic" | "privateKey">("mnemonic");
   const [password, setPassword] = useState("");
   const [network, setNetwork] = useState("mainnet");
+  const [expandedTxWallet, setExpandedTxWallet] = useState<number | null>(null);
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: getListWalletsQueryKey() });
 
@@ -567,50 +654,68 @@ export default function Wallets() {
               </TableRow>
             ) : (
               wallets?.map((wallet) => (
-                <TableRow key={wallet.id} className="border-border">
-                  <TableCell className="font-medium">
-                    <div className="flex items-center gap-2">
-                      <WalletIcon className="h-4 w-4 text-primary shrink-0" />
-                      {wallet.label}
-                    </div>
-                  </TableCell>
-                  <TableCell className="font-mono text-xs text-muted-foreground">
-                    <div className="flex flex-col gap-0.5">
-                      <div className="flex items-center">
-                        <span className="text-foreground">{wallet.address.slice(0, 10)}…{wallet.address.slice(-6)}</span>
-                        <CopyButton text={wallet.address} />
+                <React.Fragment key={wallet.id}>
+                  <TableRow className="border-border">
+                    <TableCell className="font-medium">
+                      <div className="flex items-center gap-2">
+                        <WalletIcon className="h-4 w-4 text-primary shrink-0" />
+                        {wallet.label}
                       </div>
-                      {(wallet as any).gcAddress && (
-                        <div className="flex items-center text-[10px] text-muted-foreground/60">
-                          <span className="mr-1 text-primary/50">on-chain:</span>
-                          {(wallet as any).gcAddress.slice(0, 10)}…{(wallet as any).gcAddress.slice(-6)}
-                          <CopyButton text={(wallet as any).gcAddress} />
+                    </TableCell>
+                    <TableCell className="font-mono text-xs text-muted-foreground">
+                      <div className="flex flex-col gap-0.5">
+                        <div className="flex items-center">
+                          <span className="text-foreground">{wallet.address.slice(0, 10)}…{wallet.address.slice(-6)}</span>
+                          <CopyButton text={wallet.address} />
                         </div>
-                      )}
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-center">
-                    <span className="font-mono text-xs text-primary bg-primary/10 rounded px-1.5 py-0.5">
-                      #{(wallet as any).hdIndex ?? 0}
-                    </span>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant="outline" className="text-xs gap-1 border-border/50">
-                      <Network className="h-3 w-3" /> {wallet.network}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    <WalletBalanceDisplay id={wallet.id} />
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex items-center justify-end gap-0.5">
-                      <SendDialog wallet={wallet} allWallets={wallets ?? []} />
-                      <Button variant="ghost" size="icon" onClick={() => handleDelete(wallet.id)} className="text-destructive hover:bg-destructive/10 hover:text-destructive">
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
+                        {(wallet as any).gcAddress && (
+                          <div className="flex items-center text-[10px] text-muted-foreground/60">
+                            <span className="mr-1 text-primary/50">on-chain:</span>
+                            {(wallet as any).gcAddress.slice(0, 10)}…{(wallet as any).gcAddress.slice(-6)}
+                            <CopyButton text={(wallet as any).gcAddress} />
+                          </div>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-center">
+                      <span className="font-mono text-xs text-primary bg-primary/10 rounded px-1.5 py-0.5">
+                        #{(wallet as any).hdIndex ?? 0}
+                      </span>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className="text-xs gap-1 border-border/50">
+                        <Network className="h-3 w-3" /> {wallet.network}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <WalletBalanceDisplay id={wallet.id} />
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex items-center justify-end gap-0.5">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          title="Transaction history"
+                          onClick={() => setExpandedTxWallet(expandedTxWallet === wallet.id ? null : wallet.id)}
+                          className={expandedTxWallet === wallet.id ? "text-primary bg-primary/10" : "text-muted-foreground"}
+                        >
+                          <History className="h-4 w-4" />
+                        </Button>
+                        <SendDialog wallet={wallet} allWallets={wallets ?? []} />
+                        <Button variant="ghost" size="icon" onClick={() => handleDelete(wallet.id)} className="text-destructive hover:bg-destructive/10 hover:text-destructive">
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                  {expandedTxWallet === wallet.id && (
+                    <TableRow key={`tx-${wallet.id}`} className="border-border hover:bg-transparent">
+                      <TableCell colSpan={6} className="p-0">
+                        <WalletTxHistory id={wallet.id} />
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </React.Fragment>
               ))
             )}
           </TableBody>

@@ -89,6 +89,36 @@ export const GetWalletBalanceResponse = zod.object({
 
 
 /**
+ * @summary Fetch on-chain transaction history for a wallet
+ */
+export const GetWalletTransactionsParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const getWalletTransactionsQueryLimitDefault = 25;
+
+export const GetWalletTransactionsQueryParams = zod.object({
+  "limit": zod.coerce.number().default(getWalletTransactionsQueryLimitDefault)
+})
+
+export const GetWalletTransactionsResponse = zod.object({
+  "walletId": zod.number(),
+  "address": zod.string(),
+  "transactions": zod.array(zod.object({
+  "txHash": zod.string(),
+  "height": zod.number(),
+  "timestamp": zod.string(),
+  "direction": zod.enum(['sent', 'received']),
+  "amount": zod.string(),
+  "amountRaw": zod.string(),
+  "counterpart": zod.string(),
+  "memo": zod.string(),
+  "success": zod.boolean()
+}))
+})
+
+
+/**
  * @summary Trigger the AI agent to evaluate and execute actions
  */
 export const runAgentBodyDryRunDefault = false;

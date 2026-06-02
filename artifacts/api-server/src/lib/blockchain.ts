@@ -81,6 +81,116 @@ function parseCosmosBalance(data: unknown, address: string): BalanceResult {
   return { address, balance: "0.000000", denom: "MEC" };
 }
 
+// ─── Transaction History ────────────────────────────────────────────────────
+
+export interface TxRecord {
+  txHash: string;
+  height: number;
+  timestamp: string;
+  direction: "sent" | "received";
+  amount: string;      // in MEC, formatted
+  amountRaw: string;   // in umec
+  counterpart: string; // the other address
+  memo: string;
+  success: boolean;
+}
+
+function parseTxResponse(
+  tx: Record<string, any>,
+  txResp: Record<string, any>,
+  walletAddress: string
+): TxRecord | null {
+  try {
+    const msg = tx?.body?.messages?.[0];
+    if (!msg || msg["@type"] !== "/cosmos.bank.v1beta1.MsgSend") return null;
+    const from: string = msg.from_address ?? "";
+    const to: string = msg.to_address ?? "";
+    const amtArr: Array<{ denom: string; amount: string }> = msg.amount ?? [];
+    const umecAmt = amtArr.find((a) => a.denom === "umec") ?? amtArr[0];
+    if (!umecAmt) return null;
+
+    const direction: "sent" | "received" = from === walletAddress ? "sent" : "received";
+    const counterpart = direction === "sent" ? to : from;
+    const amountMEC = (parseFloat(umecAmt.amount) / 100_000_000).toFixed(8);
+
+    return {
+      txHash: txResp.txhash ?? "",
+      height: parseInt(txResp.height ?? "0", 10),
+      timestamp: txResp.timestamp ?? "",
+      direction,
+      amount: amountMEC,
+      amountRaw: umecAmt.amount,
+      counterpart,
+      memo: tx?.body?.memo ?? "",
+      success: (txResp.code ?? 0) === 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function fetchTxPage(
+  baseUrl: string,
+  eventParam: string,
+  limit: number
+): Promise<{ txs: any[]; tx_responses: any[] }> {
+  const url = `${baseUrl}/cosmos/tx/v1beta1/txs?events=${encodeURIComponent(eventParam)}&limit=${limit}&order_by=ORDER_BY_DESC`;
+  const res = await axios.get(url, {
+    timeout: 10000,
+    headers: { Accept: "application/json" },
+    validateStatus: (s) => s === 200,
+  });
+  return {
+    txs: res.data?.txs ?? [],
+    tx_responses: res.data?.tx_responses ?? [],
+  };
+}
+
+export async function queryTransactions(
+  address: string,
+  network: string,
+  limit = 25
+): Promise<TxRecord[]> {
+  const baseUrl =
+    network === "testnet" ? "http://118.175.0.249:1317" : "http://118.175.0.247:11317";
+
+  let queryAddress = address;
+  try {
+    const { data } = fromBech32(address);
+    queryAddress = toBech32(MEC_PREFIX, data);
+  } catch { /* keep as-is */ }
+
+  const results: TxRecord[] = [];
+  const seen = new Set<string>();
+
+  const addRecords = (txs: any[], txResps: any[]) => {
+    for (let i = 0; i < txResps.length; i++) {
+      const rec = parseTxResponse(txs[i], txResps[i], queryAddress);
+      if (rec && !seen.has(rec.txHash)) {
+        seen.add(rec.txHash);
+        results.push(rec);
+      }
+    }
+  };
+
+  // Sent transactions
+  try {
+    const sent = await fetchTxPage(baseUrl, `transfer.sender='${queryAddress}'`, limit);
+    addRecords(sent.txs, sent.tx_responses);
+  } catch { /* ignore if endpoint fails */ }
+
+  // Received transactions
+  try {
+    const recv = await fetchTxPage(baseUrl, `transfer.recipient='${queryAddress}'`, limit);
+    addRecords(recv.txs, recv.tx_responses);
+  } catch { /* ignore if endpoint fails */ }
+
+  // Sort newest first
+  results.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+  return results.slice(0, limit);
+}
+
 export async function queryBalance(address: string, network: string): Promise<BalanceResult> {
   const endpoints = network === "testnet" ? TESTNET_ENDPOINTS : MAINNET_ENDPOINTS;
   const lastError: string[] = [];
