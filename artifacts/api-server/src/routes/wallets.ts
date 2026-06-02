@@ -8,7 +8,7 @@ import {
   GetWalletBalanceParams,
 } from "@workspace/api-zod";
 import { encryptMnemonic } from "../lib/crypto";
-import { queryBalance, deriveMECAddressAsync, deriveMultipleAccounts } from "../lib/blockchain";
+import { queryBalance, deriveMECAddressAsync, deriveMultipleAccounts, deriveAddressFromPrivateKey, PRIVATE_KEY_PREFIX } from "../lib/blockchain";
 
 const router = Router();
 
@@ -34,19 +34,36 @@ router.post("/wallets", async (req, res): Promise<void> => {
     return;
   }
 
-  const { label, mnemonic, password, network } = parsed.data;
+  const { label, mnemonic, privateKey, password, network } = parsed.data;
 
   let address: string;
   let hdIndex = 0;
-  try {
-    const derived = await deriveMECAddressAsync(mnemonic, 0);
-    address = derived.address;
-  } catch {
-    res.status(400).json({ error: "Invalid mnemonic phrase" });
+  let secretToEncrypt: string;
+
+  if (privateKey) {
+    try {
+      const derived = await deriveAddressFromPrivateKey(privateKey);
+      address = derived.address;
+      secretToEncrypt = PRIVATE_KEY_PREFIX + derived.privkeyHex;
+    } catch (err) {
+      res.status(400).json({ error: `Invalid private key: ${err instanceof Error ? err.message : String(err)}` });
+      return;
+    }
+  } else if (mnemonic) {
+    try {
+      const derived = await deriveMECAddressAsync(mnemonic, 0);
+      address = derived.address;
+      secretToEncrypt = mnemonic;
+    } catch {
+      res.status(400).json({ error: "Invalid mnemonic phrase" });
+      return;
+    }
+  } else {
+    res.status(400).json({ error: "Either mnemonic or privateKey is required" });
     return;
   }
 
-  const encryptedMnemonic = encryptMnemonic(mnemonic, password);
+  const encryptedMnemonic = encryptMnemonic(secretToEncrypt, password);
 
   const [wallet] = await db
     .insert(walletsTable)
@@ -163,7 +180,8 @@ router.post("/wallets/import-extension", async (req, res): Promise<void> => {
   const { wallets } = req.body as {
     wallets: Array<{
       label: string;
-      mnemonic: string;
+      mnemonic?: string;
+      privateKey?: string;
       address?: string;
       hdIndex?: number;
       password: string;
@@ -180,22 +198,36 @@ router.post("/wallets/import-extension", async (req, res): Promise<void> => {
   let skipped = 0;
 
   for (const w of wallets) {
-    if (!w.mnemonic || !w.password) { skipped++; continue; }
+    if ((!w.mnemonic && !w.privateKey) || !w.password) { skipped++; continue; }
     try {
       const hdIndex = typeof w.hdIndex === "number" ? w.hdIndex : 0;
 
-      // Derive real address from mnemonic at the correct HD index
       let address: string;
-      try {
-        const derived = await deriveMECAddressAsync(w.mnemonic, hdIndex);
-        address = derived.address;
-      } catch {
-        // Fall back to provided address if derivation fails
-        if (w.address) {
-          address = w.address;
-        } else {
-          skipped++;
-          continue;
+      let secretToEncrypt: string;
+
+      if (w.privateKey) {
+        // Private key import path
+        try {
+          const derived = await deriveAddressFromPrivateKey(w.privateKey);
+          address = derived.address;
+          secretToEncrypt = PRIVATE_KEY_PREFIX + derived.privkeyHex;
+        } catch {
+          if (w.address) {
+            address = w.address;
+            secretToEncrypt = PRIVATE_KEY_PREFIX + w.privateKey.trim().replace(/^0x/i, "");
+          } else { skipped++; continue; }
+        }
+      } else {
+        // Mnemonic import path
+        try {
+          const derived = await deriveMECAddressAsync(w.mnemonic!, hdIndex);
+          address = derived.address;
+          secretToEncrypt = w.mnemonic!;
+        } catch {
+          if (w.address) {
+            address = w.address;
+            secretToEncrypt = w.mnemonic!;
+          } else { skipped++; continue; }
         }
       }
 
@@ -206,7 +238,7 @@ router.post("/wallets/import-extension", async (req, res): Promise<void> => {
 
       if (existing.length > 0) { skipped++; continue; }
 
-      const encryptedMnemonic = encryptMnemonic(w.mnemonic, w.password);
+      const encryptedMnemonic = encryptMnemonic(secretToEncrypt, w.password);
       const label = w.label || `Account ${hdIndex} (${address.slice(0, 8)})`;
 
       await db.insert(walletsTable).values({

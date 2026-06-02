@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Plus, Trash2, Wallet as WalletIcon, Network, Download, Puzzle, ChevronRight, Copy, Check, Hash, Layers } from "lucide-react";
+import { Plus, Trash2, Wallet as WalletIcon, Network, Download, Puzzle, ChevronRight, Copy, Check, Hash, Layers, KeyRound, BookText } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
@@ -369,20 +369,28 @@ export default function Wallets() {
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [label, setLabel] = useState("");
   const [mnemonic, setMnemonic] = useState("");
+  const [privateKey, setPrivateKey] = useState("");
+  const [addMode, setAddMode] = useState<"mnemonic" | "privateKey">("mnemonic");
   const [password, setPassword] = useState("");
   const [network, setNetwork] = useState("mainnet");
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: getListWalletsQueryKey() });
 
   const handleCreate = () => {
+    const data: any = { label, password, network };
+    if (addMode === "privateKey") {
+      data.privateKey = privateKey;
+    } else {
+      data.mnemonic = mnemonic;
+    }
     createWallet.mutate(
-      { data: { label, mnemonic, password, network } },
+      { data },
       {
         onSuccess: () => {
           invalidate();
           setIsAddOpen(false);
-          setLabel(""); setMnemonic(""); setPassword(""); setNetwork("mainnet");
-          toast({ title: "Wallet Added", description: "Account 0 (index 0) added successfully." });
+          setLabel(""); setMnemonic(""); setPrivateKey(""); setPassword(""); setNetwork("mainnet");
+          toast({ title: "Wallet Added", description: addMode === "privateKey" ? "Wallet imported from private key." : "Account 0 (index 0) added successfully." });
         },
         onError: (err: any) => {
           toast({ title: "Error", description: err?.message || "Failed to add wallet.", variant: "destructive" });
@@ -433,27 +441,68 @@ export default function Wallets() {
         <div className="flex gap-2 flex-wrap">
           <ExtensionImportDialog onImported={invalidate} />
           <DeriveAccountsDialog onImport={handleDerivedImport} />
-          <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
+          <Dialog open={isAddOpen} onOpenChange={(v) => { setIsAddOpen(v); if (!v) { setLabel(""); setMnemonic(""); setPrivateKey(""); setPassword(""); setNetwork("mainnet"); setAddMode("mnemonic"); } }}>
             <DialogTrigger asChild>
               <Button className="gap-2"><Plus className="h-4 w-4" /> Add Manually</Button>
             </DialogTrigger>
-            <DialogContent className="sm:max-w-[425px]">
+            <DialogContent className="sm:max-w-[440px]">
               <DialogHeader>
                 <DialogTitle>Add Wallet Manually</DialogTitle>
-                <DialogDescription>Import a wallet using its mnemonic phrase (derives account index 0).</DialogDescription>
+                <DialogDescription>Import using a mnemonic phrase or a raw private key.</DialogDescription>
               </DialogHeader>
-              <div className="grid gap-4 py-4">
+
+              {/* Mode switcher */}
+              <div className="flex rounded-lg border border-border/60 overflow-hidden text-sm">
+                <button
+                  onClick={() => setAddMode("mnemonic")}
+                  className={`flex-1 flex items-center justify-center gap-2 py-2 transition-colors ${addMode === "mnemonic" ? "bg-primary text-primary-foreground" : "hover:bg-muted text-muted-foreground"}`}
+                >
+                  <BookText className="h-3.5 w-3.5" /> Mnemonic Phrase
+                </button>
+                <button
+                  onClick={() => setAddMode("privateKey")}
+                  className={`flex-1 flex items-center justify-center gap-2 py-2 transition-colors border-l border-border/60 ${addMode === "privateKey" ? "bg-primary text-primary-foreground" : "hover:bg-muted text-muted-foreground"}`}
+                >
+                  <KeyRound className="h-3.5 w-3.5" /> Private Key
+                </button>
+              </div>
+
+              <div className="grid gap-4 py-2">
                 <div className="grid gap-2">
                   <Label htmlFor="label">Label</Label>
-                  <Input id="label" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Main Ops" />
+                  <Input id="label" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="My MEC Account" />
                 </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="mnemonic">Mnemonic Phrase</Label>
-                  <Input id="mnemonic" type="password" value={mnemonic} onChange={(e) => setMnemonic(e.target.value)} placeholder="word1 word2 ..." />
-                </div>
+
+                {addMode === "mnemonic" ? (
+                  <div className="grid gap-2">
+                    <Label htmlFor="mnemonic">Mnemonic Phrase</Label>
+                    <textarea
+                      id="mnemonic"
+                      className="w-full h-20 bg-background border border-border rounded-md px-3 py-2 text-sm font-mono resize-none outline-none focus:border-primary placeholder:text-muted-foreground"
+                      placeholder="word1 word2 word3 ... (12 or 24 words)"
+                      value={mnemonic}
+                      onChange={(e) => setMnemonic(e.target.value)}
+                    />
+                    <p className="text-xs text-muted-foreground">Derives account index 0. Use "Derive Multiple Accounts" for more.</p>
+                  </div>
+                ) : (
+                  <div className="grid gap-2">
+                    <Label htmlFor="privateKey">Private Key</Label>
+                    <Input
+                      id="privateKey"
+                      type="password"
+                      className="font-mono"
+                      value={privateKey}
+                      onChange={(e) => setPrivateKey(e.target.value)}
+                      placeholder="Hex (64 chars), 0x-prefixed hex, or Base64"
+                    />
+                    <p className="text-xs text-muted-foreground">Accepts raw secp256k1 private key in hex (with or without 0x) or Base64 format.</p>
+                  </div>
+                )}
+
                 <div className="grid gap-2">
                   <Label htmlFor="password">Encryption Password</Label>
-                  <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Required for agent execution" />
+                  <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Used to encrypt the key securely" />
                 </div>
                 <div className="grid gap-2">
                   <Label>Network</Label>
@@ -467,8 +516,11 @@ export default function Wallets() {
                 </div>
               </div>
               <DialogFooter>
-                <Button disabled={createWallet.isPending || !label || !mnemonic || !password} onClick={handleCreate}>
-                  {createWallet.isPending ? "Deriving & adding..." : "Add Wallet"}
+                <Button
+                  disabled={createWallet.isPending || !label || (addMode === "mnemonic" ? !mnemonic : !privateKey) || !password}
+                  onClick={handleCreate}
+                >
+                  {createWallet.isPending ? "Importing..." : addMode === "privateKey" ? "Import from Private Key" : "Add Wallet"}
                 </Button>
               </DialogFooter>
             </DialogContent>

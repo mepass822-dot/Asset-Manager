@@ -40,9 +40,12 @@ export const createWalletBodyNetworkDefault = `mainnet`;
 
 export const CreateWalletBody = zod.object({
   "label": zod.string().min(1),
-  "mnemonic": zod.string().min(1),
+  "mnemonic": zod.string().optional(),
+  "privateKey": zod.string().optional(),
   "password": zod.string().min(1),
   "network": zod.string().default(createWalletBodyNetworkDefault)
+}).refine(d => d.mnemonic || d.privateKey, {
+  message: "Either mnemonic or privateKey must be provided",
 })
 
 

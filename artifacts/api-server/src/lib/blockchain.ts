@@ -6,6 +6,12 @@ import { toBech32 } from "@cosmjs/encoding";
 const MEC_PREFIX = "me";
 const MEC_COIN_TYPE = 118;
 
+/**
+ * Prefix stored in the plaintext before encryption to distinguish
+ * a raw private key from a mnemonic phrase.
+ */
+export const PRIVATE_KEY_PREFIX = "pk:";
+
 // Ordered list of endpoints to try for each network.
 // The Meta Earth extension uses /me/balances/{address} against their scan API,
 // with a fallback to the standard Cosmos REST bank endpoint.
@@ -97,6 +103,28 @@ export async function queryBalance(address: string, network: string): Promise<Ba
   }
 
   return { address, balance: "unavailable", denom: "MEC", error: lastError[0] };
+}
+
+/**
+ * Derive the MEC bech32 address from a raw secp256k1 private key.
+ * Accepts hex (with or without 0x prefix) or base64.
+ */
+export async function deriveAddressFromPrivateKey(privateKey: string): Promise<{ address: string; privkeyHex: string }> {
+  let hex = privateKey.trim();
+  // Strip 0x prefix
+  if (hex.startsWith("0x") || hex.startsWith("0X")) hex = hex.slice(2);
+  // If it looks like base64 (not all hex chars), decode it
+  if (/[^0-9a-fA-F]/.test(hex)) {
+    const buf = Buffer.from(hex, "base64");
+    hex = buf.toString("hex");
+  }
+  if (hex.length !== 64) throw new Error(`Private key must be 32 bytes (64 hex chars), got ${hex.length}`);
+  const privkey = Buffer.from(hex, "hex");
+  const { pubkey } = await Secp256k1.makeKeypair(privkey);
+  const compressed = Secp256k1.compressPubkey(pubkey);
+  const rawAddr = rawSecp256k1PubkeyToRawAddress(compressed);
+  const address = toBech32(MEC_PREFIX, rawAddr);
+  return { address, privkeyHex: hex };
 }
 
 /**
