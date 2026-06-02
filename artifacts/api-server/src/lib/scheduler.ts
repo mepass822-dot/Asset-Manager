@@ -1,4 +1,4 @@
-import { db, walletsTable, rulesTable, agentLogsTable, sweepConfigTable } from "@workspace/db";
+import { db, walletsTable, rulesTable, agentLogsTable, sweepConfigTable, whitelistTable } from "@workspace/db";
 import { eq, sql } from "drizzle-orm";
 import { decryptMnemonic } from "./crypto";
 import { queryBalance, queryStakingRewards, claimAllStakingRewards, sweepToMaster, getPrivateKeyHex, sendMEC } from "./blockchain";
@@ -272,6 +272,11 @@ async function runAgentOnce(cfg: SchedulerConfig): Promise<{ executed: number; s
     return { executed, skipped: cfg.walletIds.length - executed };
   }
 
+  // Load whitelist once — used to gate all AI-decided transfers
+  const whitelistEntries = await db.select({ address: whitelistTable.address }).from(whitelistTable);
+  const whitelist = new Set(whitelistEntries.map((e) => e.address.toLowerCase()));
+  const whitelistActive = whitelist.size > 0;
+
   // Execute AI decisions (only for verified wallets, skip unverified)
   const unverifiedAddresses = new Set(unverifiedWallets.map((w) => w.address));
 
@@ -306,6 +311,19 @@ async function runAgentOnce(cfg: SchedulerConfig): Promise<{ executed: number; s
       const secret = decryptMnemonic(wallet.encryptedMnemonic, cfg.masterPassword);
       const isTransfer = /sweep|withdraw|send|transfer|claim/i.test(decision.action);
       const toAddress: string | undefined = decision.toAddress;
+
+      // ── Whitelist enforcement ─────────────────────────────────────────────
+      // If the whitelist is active and the destination is not on it, block.
+      if (isTransfer && toAddress && whitelistActive && !whitelist.has(toAddress.toLowerCase())) {
+        await db.insert(agentLogsTable).values({
+          walletId: wallet.id,
+          action: decision.action,
+          status: "blocked",
+          amount: decision.amount ?? null,
+          message: `[WHITELIST BLOCKED] Destination ${toAddress} is not on the approved whitelist. ${decision.reason}`,
+        });
+        continue;
+      }
 
       if (isTransfer && toAddress && decision.amount) {
         const privkeyHex = await getPrivateKeyHex(secret, wallet.hdIndex ?? 0);

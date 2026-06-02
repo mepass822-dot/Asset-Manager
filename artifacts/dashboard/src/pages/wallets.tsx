@@ -10,7 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Plus, Trash2, Wallet as WalletIcon, Network, Download, Puzzle, ChevronRight, ChevronDown, Copy, Check, Hash, Layers, KeyRound, BookText, ArrowUpRight, ArrowDownLeft, History, ExternalLink, RefreshCw, ShieldCheck, ShieldOff, Upload, Coins, Eye, EyeOff, CheckSquare, Square, X } from "lucide-react";
+import { Plus, Trash2, Wallet as WalletIcon, Network, Download, Puzzle, ChevronRight, ChevronDown, Copy, Check, Hash, Layers, KeyRound, BookText, ArrowUpRight, ArrowDownLeft, History, ExternalLink, RefreshCw, ShieldCheck, ShieldOff, Upload, Coins, Eye, EyeOff, CheckSquare, Square, X, Lock } from "lucide-react";
 import { SendDialog } from "@/components/send-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -585,6 +585,44 @@ export default function Wallets() {
   const [expandedTxWallet, setExpandedTxWallet] = useState<number | null>(null);
   const [expandedStakingWallet, setExpandedStakingWallet] = useState<number | null>(null);
 
+  // Re-encrypt state
+  const [isReencryptOpen, setIsReencryptOpen] = useState(false);
+  const [reencOldPass, setReencOldPass] = useState("");
+  const [reencNewPass, setReencNewPass] = useState("");
+  const [reencConfirm, setReencConfirm] = useState("");
+  const [reencLoading, setReencLoading] = useState(false);
+
+  const handleReencrypt = async () => {
+    if (reencNewPass !== reencConfirm) {
+      toast({ title: "Passwords don't match", description: "New password and confirmation must match.", variant: "destructive" });
+      return;
+    }
+    if (reencNewPass.length < 6) {
+      toast({ title: "Password too short", description: "New password must be at least 6 characters.", variant: "destructive" });
+      return;
+    }
+    setReencLoading(true);
+    try {
+      const r = await authFetch("/api/wallets/re-encrypt", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ oldPassword: reencOldPass, newPassword: reencNewPass }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "Re-encryption failed");
+      toast({
+        title: "Re-encryption complete",
+        description: `${d.reencrypted} wallet(s) re-encrypted successfully${d.failed > 0 ? ` · ${d.failed} failed (wrong password)` : ""}.`,
+      });
+      setIsReencryptOpen(false);
+      setReencOldPass(""); setReencNewPass(""); setReencConfirm("");
+    } catch (err) {
+      toast({ title: "Error", description: err instanceof Error ? err.message : "Unknown error", variant: "destructive" });
+    } finally {
+      setReencLoading(false);
+    }
+  };
+
   // ─── Selection state ────────────────────────────────────────────────────────
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [bulkLoading, setBulkLoading] = useState(false);
@@ -701,6 +739,57 @@ export default function Wallets() {
           </p>
         </div>
         <div className="flex gap-2 flex-wrap">
+          {/* Re-encrypt All Wallets */}
+          <Dialog open={isReencryptOpen} onOpenChange={(v) => { setIsReencryptOpen(v); if (!v) { setReencOldPass(""); setReencNewPass(""); setReencConfirm(""); } }}>
+            <DialogTrigger asChild>
+              <Button variant="outline" className="gap-2">
+                <Lock className="h-4 w-4" /> Re-encrypt
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-[420px]">
+              <DialogHeader>
+                <DialogTitle>Re-encrypt All Wallets</DialogTitle>
+                <DialogDescription>
+                  Change the encryption password for every wallet. You'll need the new password for all future sweeps and sends.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4 py-2">
+                <div className="space-y-2">
+                  <Label>Current Encryption Password</Label>
+                  <Input type="password" value={reencOldPass} onChange={e => setReencOldPass(e.target.value)} placeholder="Password used when wallets were imported" />
+                </div>
+                <div className="space-y-2">
+                  <Label>New Password</Label>
+                  <Input type="password" value={reencNewPass} onChange={e => setReencNewPass(e.target.value)} placeholder="At least 6 characters" />
+                </div>
+                <div className="space-y-2">
+                  <Label>Confirm New Password</Label>
+                  <Input
+                    type="password"
+                    value={reencConfirm}
+                    onChange={e => setReencConfirm(e.target.value)}
+                    className={reencConfirm && reencNewPass !== reencConfirm ? "border-destructive" : ""}
+                    placeholder="Repeat new password"
+                  />
+                  {reencConfirm && reencNewPass !== reencConfirm && (
+                    <p className="text-xs text-destructive">Passwords do not match</p>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground bg-yellow-500/10 border border-yellow-500/30 rounded p-2 text-yellow-200">
+                  This re-encrypts every wallet in the database. If any wallet fails to decrypt with the current password it will be skipped.
+                </p>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setIsReencryptOpen(false)}>Cancel</Button>
+                <Button
+                  onClick={handleReencrypt}
+                  disabled={reencLoading || !reencOldPass || !reencNewPass || reencNewPass !== reencConfirm}
+                >
+                  {reencLoading ? "Re-encrypting…" : "Re-encrypt All"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
           <ExtensionImportDialog onImported={invalidate} />
           <DeriveAccountsDialog onImport={handleDerivedImport} />
           <BulkImportDialog onImported={invalidate} />

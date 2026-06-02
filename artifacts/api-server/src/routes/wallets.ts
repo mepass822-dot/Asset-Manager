@@ -636,4 +636,38 @@ router.post("/wallets/import-extension", async (req, res): Promise<void> => {
   res.json({ imported, skipped });
 });
 
+// ─── Re-encrypt All Wallets ────────────────────────────────────────────────────
+// Changes the encryption password for every wallet in the database.
+// Decrypts each wallet with `oldPassword`, re-encrypts with `newPassword`.
+router.post("/wallets/re-encrypt", async (req, res): Promise<void> => {
+  const { oldPassword, newPassword } = req.body as { oldPassword: string; newPassword: string };
+  if (!oldPassword || !newPassword) {
+    res.status(400).json({ error: "oldPassword and newPassword are required" });
+    return;
+  }
+  if (oldPassword === newPassword) {
+    res.status(400).json({ error: "New password must be different from the current password" });
+    return;
+  }
+
+  const wallets = await db.select().from(walletsTable);
+  let reencrypted = 0;
+  let failed = 0;
+  const errors: string[] = [];
+
+  for (const wallet of wallets) {
+    try {
+      const secret = decryptMnemonic(wallet.encryptedMnemonic, oldPassword);
+      const newEncrypted = encryptMnemonic(secret, newPassword);
+      await db.update(walletsTable).set({ encryptedMnemonic: newEncrypted }).where(eq(walletsTable.id, wallet.id));
+      reencrypted++;
+    } catch {
+      failed++;
+      errors.push(`${wallet.label} (${wallet.address.slice(0, 12)}…)`);
+    }
+  }
+
+  res.json({ reencrypted, failed, errors });
+});
+
 export default router;

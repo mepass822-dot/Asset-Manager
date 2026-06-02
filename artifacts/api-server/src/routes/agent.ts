@@ -313,6 +313,10 @@ router.post("/agent/chat", async (req, res): Promise<void> => {
   }
 
   const { message, walletContext } = parsed.data;
+  // Accept optional conversation history for multi-turn context
+  const history: Array<{ role: "user" | "assistant"; content: string }> =
+    Array.isArray((req.body as { history?: unknown }).history) ? (req.body as { history: Array<{ role: "user" | "assistant"; content: string }> }).history : [];
+
   const apiKey = getNvidiaKey();
 
   if (!apiKey) {
@@ -331,7 +335,10 @@ router.post("/agent/chat", async (req, res): Promise<void> => {
       network: walletsTable.network,
       verified: walletsTable.verified,
     }).from(walletsTable);
-    context = `\n\nWallet context:\n${JSON.stringify(wallets, null, 2)}`;
+    // Also pull recent agent stats for richer context
+    const [stats] = await db.select({ count: sql<number>`count(*)::int` }).from(walletsTable).where(eq(walletsTable.verified, true));
+    const sweepCfg = await getOrCreateSweepConfig();
+    context = `\n\nLive wallet context (${wallets.length} total, ${stats.count} verified):\n${JSON.stringify(wallets, null, 2)}\n\nSweep config: master=${sweepCfg.masterAddress}, autoSweep=${sweepCfg.enabled}, minMEC=${sweepCfg.minSweepAmountMec}`;
   }
 
   const systemPrompt = `You are an AI assistant for the Meta Earth Wallet Agent — an autonomous system that manages multiple MEC (Meta Earth Coin) cryptocurrency wallets on the me-chain blockchain.
@@ -344,25 +351,29 @@ Key features of this system:
 - Monthly dividends arrive randomly in days 1-7 of each month — the agent monitors and sweeps automatically
 - Staking/block rewards can be claimed and swept to the master address
 - Verified wallets are on-chain active accounts; unverified wallets are monitored only
-- Sweep destination: me1h4fc80gz38ms8tejlj37rxmf7uh6xe25fk0tfx (master address)
+- The whitelist restricts where funds can be sent — the AI agent respects this at all times
+- Automation rules (JSON conditions/actions) guide the AI's decisions each scheduled run
 
 Be concise, professional, and helpful. When suggesting actions, be specific.${context}`;
 
+  // Build the full message thread including prior conversation turns
+  const messages: Array<{ role: "system" | "user" | "assistant"; content: string }> = [
+    { role: "system", content: systemPrompt },
+    ...history.slice(-20), // keep last 20 turns to stay within context limits
+    { role: "user", content: message },
+  ];
+
   try {
-    const reply = await chatWithNvidia(
-      [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: message },
-      ],
-      apiKey
-    );
+    const reply = await chatWithNvidia(messages, apiKey);
 
     const suggestedActions: string[] = [];
-    if (reply.toLowerCase().includes("sweep") || reply.toLowerCase().includes("dividend")) suggestedActions.push("Configure sweep settings");
-    if (reply.toLowerCase().includes("withdraw")) suggestedActions.push("Run agent with withdrawal rule");
-    if (reply.toLowerCase().includes("rule")) suggestedActions.push("Create automation rule");
-    if (reply.toLowerCase().includes("balance")) suggestedActions.push("Check wallet balances");
-    if (reply.toLowerCase().includes("staking") || reply.toLowerCase().includes("reward")) suggestedActions.push("Check staking rewards");
+    const low = reply.toLowerCase();
+    if (low.includes("sweep") || low.includes("dividend")) suggestedActions.push("Configure sweep settings");
+    if (low.includes("withdraw")) suggestedActions.push("Run agent with withdrawal rule");
+    if (low.includes("rule")) suggestedActions.push("Create automation rule");
+    if (low.includes("balance")) suggestedActions.push("Check wallet balances");
+    if (low.includes("staking") || low.includes("reward")) suggestedActions.push("Check staking rewards");
+    if (low.includes("whitelist")) suggestedActions.push("Manage whitelist addresses");
 
     res.json({ reply, suggestedActions });
   } catch (err) {
@@ -399,6 +410,11 @@ router.get("/agent/logs", async (req, res): Promise<void> => {
     .limit(take);
 
   res.json(logs);
+});
+
+router.delete("/agent/logs", async (_req, res): Promise<void> => {
+  await db.delete(agentLogsTable);
+  res.json({ cleared: true });
 });
 
 router.get("/agent/stats", async (_req, res): Promise<void> => {
