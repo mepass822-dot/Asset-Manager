@@ -92,7 +92,19 @@
 
   <div class="status" id="status"></div>
 
-  <div id="debugInfo" style="display:none; margin-top:10px; font-size:10px; color:#666; background:#0d0d0d; border:1px solid #1a1a1a; border-radius:4px; padding:8px 10px; word-break:break-all; white-space:pre-wrap; line-height:1.6;"></div>
+  <div id="snippetSection" style="display:none; margin-top:12px;">
+    <div style="font-size:11px; color:#aaa; margin-bottom:6px; line-height:1.5;">
+      Chrome blocks cross-extension storage access.<br>
+      Paste this snippet into the <strong style="color:#e0e0e0;">Meta Earth extension's DevTools console</strong>:
+    </div>
+    <ol style="font-size:11px; color:#777; margin:0 0 8px 16px; line-height:1.8;">
+      <li>Right-click the Meta Earth icon → <em>Inspect popup</em></li>
+      <li>Click the <strong style="color:#e0e0e0;">Console</strong> tab</li>
+      <li>Paste the snippet below &amp; press Enter</li>
+    </ol>
+    <pre id="snippetCode" style="background:#0d0d0d; border:1px solid #222; border-radius:4px; padding:8px 10px; font-size:10px; color:#39ff14; white-space:pre-wrap; word-break:break-all; margin:0 0 6px; max-height:140px; overflow-y:auto;"></pre>
+    <button id="copyBtn" style="width:100%; background:#111; color:#aaa; border:1px solid #333; border-radius:4px; padding:7px; font-size:12px; cursor:pointer; font-weight:600; letter-spacing:0.04em;">Copy Snippet</button>
+  </div>
 
   <script src="popup.js"></script>
 </body>
