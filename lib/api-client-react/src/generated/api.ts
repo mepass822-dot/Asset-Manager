@@ -35,7 +35,9 @@ import type {
   SchedulerStatus,
   Wallet,
   WalletBalance,
-  WalletInput
+  WalletInput,
+  WhitelistEntry,
+  WhitelistInput
 } from './api.schemas';
 
 import { customFetch } from '../custom-fetch';
@@ -1309,5 +1311,223 @@ export const useDeleteRule = <TError = ErrorType<void>,
         TContext
       > => {
       return useMutation(getDeleteRuleMutationOptions(options));
+    }
+
+export const getListWhitelistUrl = () => {
+
+
+
+
+  return `/api/whitelist`
+}
+
+/**
+ * @summary List all whitelisted destination addresses
+ */
+export const listWhitelist = async ( options?: RequestInit): Promise<WhitelistEntry[]> => {
+
+  return customFetch<WhitelistEntry[]>(getListWhitelistUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListWhitelistQueryKey = () => {
+    return [
+    `/api/whitelist`
+    ] as const;
+    }
+
+
+export const getListWhitelistQueryOptions = <TData = Awaited<ReturnType<typeof listWhitelist>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listWhitelist>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListWhitelistQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listWhitelist>>> = ({ signal }) => listWhitelist({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listWhitelist>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListWhitelistQueryResult = NonNullable<Awaited<ReturnType<typeof listWhitelist>>>
+export type ListWhitelistQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List all whitelisted destination addresses
+ */
+
+export function useListWhitelist<TData = Awaited<ReturnType<typeof listWhitelist>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listWhitelist>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListWhitelistQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getCreateWhitelistEntryUrl = () => {
+
+
+
+
+  return `/api/whitelist`
+}
+
+/**
+ * @summary Add an address to the whitelist
+ */
+export const createWhitelistEntry = async (whitelistInput: WhitelistInput, options?: RequestInit): Promise<WhitelistEntry> => {
+
+  return customFetch<WhitelistEntry>(getCreateWhitelistEntryUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      whitelistInput,)
+  }
+);}
+
+
+
+
+export const getCreateWhitelistEntryMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createWhitelistEntry>>, TError,{data: BodyType<WhitelistInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createWhitelistEntry>>, TError,{data: BodyType<WhitelistInput>}, TContext> => {
+
+const mutationKey = ['createWhitelistEntry'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createWhitelistEntry>>, {data: BodyType<WhitelistInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createWhitelistEntry(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateWhitelistEntryMutationResult = NonNullable<Awaited<ReturnType<typeof createWhitelistEntry>>>
+    export type CreateWhitelistEntryMutationBody = BodyType<WhitelistInput>
+    export type CreateWhitelistEntryMutationError = ErrorType<void>
+
+    /**
+ * @summary Add an address to the whitelist
+ */
+export const useCreateWhitelistEntry = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createWhitelistEntry>>, TError,{data: BodyType<WhitelistInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createWhitelistEntry>>,
+        TError,
+        {data: BodyType<WhitelistInput>},
+        TContext
+      > => {
+      return useMutation(getCreateWhitelistEntryMutationOptions(options));
+    }
+
+export const getDeleteWhitelistEntryUrl = (id: number,) => {
+
+
+
+
+  return `/api/whitelist/${id}`
+}
+
+/**
+ * @summary Remove an address from the whitelist
+ */
+export const deleteWhitelistEntry = async (id: number, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getDeleteWhitelistEntryUrl(id),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getDeleteWhitelistEntryMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteWhitelistEntry>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteWhitelistEntry>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['deleteWhitelistEntry'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteWhitelistEntry>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  deleteWhitelistEntry(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteWhitelistEntryMutationResult = NonNullable<Awaited<ReturnType<typeof deleteWhitelistEntry>>>
+
+    export type DeleteWhitelistEntryMutationError = ErrorType<void>
+
+    /**
+ * @summary Remove an address from the whitelist
+ */
+export const useDeleteWhitelistEntry = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteWhitelistEntry>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteWhitelistEntry>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getDeleteWhitelistEntryMutationOptions(options));
     }
 

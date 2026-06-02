@@ -143,6 +143,20 @@ export interface RuleUpdate {
   actionJson?: string;
 }
 
+export interface WhitelistEntry {
+  id: number;
+  address: string;
+  label: string;
+  createdAt: string;
+}
+
+export interface WhitelistInput {
+  /** @minLength 1 */
+  address: string;
+  /** @minLength 1 */
+  label: string;
+}
+
 export type ListAgentLogsParams = {
 /**
  * @nullable

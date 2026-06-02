@@ -16,6 +16,8 @@ tags:
     description: AI agent operations
   - name: rules
     description: Agent automation rules
+  - name: whitelist
+    description: Destination address whitelist
 
 paths:
   /healthz:
@@ -315,6 +317,59 @@ paths:
         "404":
           description: Not found
 
+  /whitelist:
+    get:
+      operationId: listWhitelist
+      tags: [whitelist]
+      summary: List all whitelisted destination addresses
+      responses:
+        "200":
+          description: Whitelist entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/WhitelistEntry"
+    post:
+      operationId: createWhitelistEntry
+      tags: [whitelist]
+      summary: Add an address to the whitelist
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WhitelistInput"
+      responses:
+        "201":
+          description: Entry created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WhitelistEntry"
+        "400":
+          description: Invalid input
+        "409":
+          description: Address already whitelisted
+
+  /whitelist/{id}:
+    delete:
+      operationId: deleteWhitelistEntry
+      tags: [whitelist]
+      summary: Remove an address from the whitelist
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+
 components:
   schemas:
     HealthStatus:
@@ -552,3 +607,28 @@ components:
           type: string
         actionJson:
           type: string
+
+    WhitelistEntry:
+      type: object
+      required: [id, address, label, createdAt]
+      properties:
+        id:
+          type: integer
+        address:
+          type: string
+        label:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    WhitelistInput:
+      type: object
+      required: [address, label]
+      properties:
+        address:
+          type: string
+          minLength: 1
+        label:
+          type: string
+          minLength: 1

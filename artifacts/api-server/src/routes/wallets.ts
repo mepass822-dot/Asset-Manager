@@ -9,6 +9,7 @@ import {
 } from "@workspace/api-zod";
 import { encryptMnemonic, decryptMnemonic } from "../lib/crypto";
 import { queryBalance, deriveMECAddressAsync, deriveMultipleAccounts, deriveAddressFromPrivateKey, PRIVATE_KEY_PREFIX, sendMEC, getPrivateKeyHex, meToGcAddress, gcAddressFromPrivkeyHex } from "../lib/blockchain";
+import { whitelistTable } from "@workspace/db";
 
 const router = Router();
 
@@ -187,6 +188,18 @@ router.post("/wallets/:id/send", async (req, res): Promise<void> => {
   if (amountMEC <= 0) {
     res.status(400).json({ error: "amountMEC must be greater than 0" });
     return;
+  }
+
+  // Security guardrail: if a whitelist exists, only allow whitelisted destinations
+  const whitelistEntries = await db.select().from(whitelistTable);
+  if (whitelistEntries.length > 0) {
+    const allowed = whitelistEntries.some((e) => e.address === toAddress);
+    if (!allowed) {
+      res.status(403).json({
+        error: `Destination address ${toAddress} is not on the whitelist. Add it in the Whitelist page before sending funds there.`,
+      });
+      return;
+    }
   }
 
   const [wallet] = await db.select().from(walletsTable).where(eq(walletsTable.id, id));

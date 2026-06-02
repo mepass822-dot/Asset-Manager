@@ -288,3 +288,36 @@ export const DeleteRuleParams = zod.object({
 })
 
 
+/**
+ * @summary List all whitelisted destination addresses
+ */
+export const ListWhitelistResponseItem = zod.object({
+  "id": zod.number(),
+  "address": zod.string(),
+  "label": zod.string(),
+  "createdAt": zod.coerce.date()
+})
+export const ListWhitelistResponse = zod.array(ListWhitelistResponseItem)
+
+
+/**
+ * @summary Add an address to the whitelist
+ */
+
+
+
+
+export const CreateWhitelistEntryBody = zod.object({
+  "address": zod.string().min(1),
+  "label": zod.string().min(1)
+})
+
+
+/**
+ * @summary Remove an address from the whitelist
+ */
+export const DeleteWhitelistEntryParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+

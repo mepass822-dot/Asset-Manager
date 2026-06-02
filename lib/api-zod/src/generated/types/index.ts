@@ -23,3 +23,5 @@ export * from './schedulerStatusLastRunResult';
 export * from './wallet';
 export * from './walletBalance';
 export * from './walletInput';
+export * from './whitelistEntry';
+export * from './whitelistInput';

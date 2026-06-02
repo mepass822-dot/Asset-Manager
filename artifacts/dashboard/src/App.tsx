@@ -10,6 +10,7 @@ import Agent from "@/pages/agent";
 import AgentChat from "@/pages/agent-chat";
 import Rules from "@/pages/rules";
 import Logs from "@/pages/logs";
+import Whitelist from "@/pages/whitelist";
 
 const queryClient = new QueryClient();
 
@@ -23,6 +24,7 @@ function Router() {
         <Route path="/agent/chat" component={AgentChat} />
         <Route path="/rules" component={Rules} />
         <Route path="/logs" component={Logs} />
+        <Route path="/whitelist" component={Whitelist} />
         <Route component={NotFound} />
       </Switch>
     </AppLayout>

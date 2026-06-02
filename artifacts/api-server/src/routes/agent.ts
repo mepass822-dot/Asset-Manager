@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { eq, desc, count, and, sql } from "drizzle-orm";
-import { db, walletsTable, agentLogsTable, rulesTable } from "@workspace/db";
+import { db, walletsTable, agentLogsTable, rulesTable, whitelistTable } from "@workspace/db";
 import { RunAgentBody, AgentChatBody, ListAgentLogsQueryParams } from "@workspace/api-zod";
 import { decryptMnemonic } from "../lib/crypto";
 import { queryBalance, sendMEC, getPrivateKeyHex } from "../lib/blockchain";
@@ -39,6 +39,10 @@ router.post("/agent/run", async (req, res): Promise<void> => {
   );
 
   const createdLogs: typeof agentLogsTable.$inferSelect[] = [];
+
+  // Load whitelist once — used to validate all transfer destinations
+  const whitelistEntries = await db.select().from(whitelistTable);
+  const whitelistAddresses = new Set(whitelistEntries.map((e) => e.address));
 
   const apiKey = getNvidiaKey();
   if (!apiKey) {
@@ -105,7 +109,24 @@ router.post("/agent/run", async (req, res): Promise<void> => {
 
       // If the decision is a withdraw/send action and specifies a destination, broadcast it
       const isTransfer = /withdraw|send|transfer/i.test(decision.action);
-      const toAddress: string | undefined = (decision as { toAddress?: string }).toAddress;
+      const toAddress: string | undefined =
+        decision.destination ?? (decision as { toAddress?: string }).toAddress;
+
+      // Security guardrail: destination must be on the whitelist
+      if (isTransfer && toAddress && whitelistAddresses.size > 0 && !whitelistAddresses.has(toAddress)) {
+        const log = await db
+          .insert(agentLogsTable)
+          .values({
+            walletId: wallet.id,
+            action: decision.action,
+            status: "blocked",
+            amount: decision.amount ?? null,
+            message: `Security policy: destination ${toAddress} is not on the whitelist. Add it in the Whitelist page before the agent can send funds there.`,
+          })
+          .returning();
+        createdLogs.push(...log);
+        continue;
+      }
 
       if (isTransfer && toAddress && decision.amount) {
         const privkeyHex = await getPrivateKeyHex(secret, wallet.hdIndex ?? 0);

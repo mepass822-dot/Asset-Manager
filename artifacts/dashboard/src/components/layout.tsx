@@ -12,7 +12,7 @@ import {
   SidebarMenuButton,
   SidebarProvider,
 } from "@/components/ui/sidebar";
-import { Terminal, Wallet, Bot, ListTree, Activity, MessageSquare } from "lucide-react";
+import { Terminal, Wallet, Bot, ListTree, Activity, MessageSquare, ShieldCheck } from "lucide-react";
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
@@ -85,6 +85,14 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                       <Link href="/logs">
                         <Terminal className="h-4 w-4" />
                         <span>Activity Logs</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                  <SidebarMenuItem>
+                    <SidebarMenuButton asChild isActive={location === "/whitelist"}>
+                      <Link href="/whitelist">
+                        <ShieldCheck className="h-4 w-4" />
+                        <span>Whitelist</span>
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
