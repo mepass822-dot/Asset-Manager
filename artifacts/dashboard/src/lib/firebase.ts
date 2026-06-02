@@ -15,3 +15,14 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export default app;
+
+export async function authFetch(url: string, options: RequestInit = {}): Promise<Response> {
+  const token = auth.currentUser ? await auth.currentUser.getIdToken() : null;
+  return fetch(url, {
+    ...options,
+    headers: {
+      ...(options.headers as Record<string, string> | undefined),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  });
+}

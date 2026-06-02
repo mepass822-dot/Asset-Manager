@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useListWallets, useCreateWallet, useDeleteWallet, useGetWalletBalance, useGetWalletTransactions, useGetWalletStakingRewards, useBulkImportWallets, getListWalletsQueryKey } from "@workspace/api-client-react";
+import { authFetch } from "@/lib/firebase";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -42,7 +43,7 @@ function CopyButton({ text }: { text: string }) {
 // ─── Derive-preview dialog ────────────────────────────────────────────────────
 interface DerivedAccount { address: string; hdIndex: number; hdPath: string; }
 
-function DeriveAccountsDialog({ onImport }: { onImport: (accounts: DerivedAccount[], mnemonic: string) => void }) {
+function DeriveAccountsDialog({ onImport }: { onImport: (accounts: DerivedAccount[], mnemonic: string, password: string) => void }) {
   const [open, setOpen] = useState(false);
   const [mnemonic, setMnemonic] = useState("");
   const [count, setCount] = useState(5);
@@ -58,7 +59,7 @@ function DeriveAccountsDialog({ onImport }: { onImport: (accounts: DerivedAccoun
     if (!mnemonic.trim()) return;
     setLoading(true);
     try {
-      const resp = await fetch("/api/wallets/derive-accounts", {
+      const resp = await authFetch("/api/wallets/derive-accounts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ mnemonic: mnemonic.trim(), count }),
@@ -76,7 +77,7 @@ function DeriveAccountsDialog({ onImport }: { onImport: (accounts: DerivedAccoun
 
   const handleImport = () => {
     const chosen = accounts.filter(a => selected.has(a.hdIndex));
-    onImport(chosen, mnemonic.trim());
+    onImport(chosen, mnemonic.trim(), password);
     setOpen(false);
     setMnemonic(""); setAccounts([]); setSelected(new Set()); setStep("input"); setPassword("");
   };
@@ -247,7 +248,7 @@ function ExtensionImportDialog({ onImported }: { onImported: () => void }) {
         return;
       }
 
-      const resp = await fetch("/api/wallets/import-extension", {
+      const resp = await authFetch("/api/wallets/import-extension", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ wallets })
@@ -679,10 +680,8 @@ export default function Wallets() {
   };
 
   // Called by DeriveAccountsDialog after user selects accounts
-  const handleDerivedImport = async (accounts: { address: string; hdIndex: number; hdPath: string }[], mnemonicPhrase: string) => {
-    // Show a password dialog — for simplicity we prompt inline
-    const pwd = window.prompt("Enter encryption password for these accounts:");
-    if (!pwd) return;
+  const handleDerivedImport = async (accounts: { address: string; hdIndex: number; hdPath: string }[], mnemonicPhrase: string, password: string) => {
+    if (!password) return;
     const net = "mainnet";
 
     const wallets = accounts.map(a => ({
@@ -690,18 +689,22 @@ export default function Wallets() {
       mnemonic: mnemonicPhrase,
       address: a.address,
       hdIndex: a.hdIndex,
-      password: pwd,
+      password,
       network: net,
     }));
 
-    const resp = await fetch("/api/wallets/import-extension", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ wallets }),
-    });
-    const result = await resp.json();
-    toast({ title: "Accounts added", description: `${result.imported} imported, ${result.skipped} already existed.` });
-    invalidate();
+    try {
+      const resp = await authFetch("/api/wallets/import-extension", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ wallets }),
+      });
+      const result = await resp.json();
+      toast({ title: "Accounts added", description: `${result.imported} imported, ${result.skipped} already existed.` });
+      invalidate();
+    } catch (err) {
+      toast({ title: "Import failed", description: String(err), variant: "destructive" });
+    }
   };
 
   const handleDelete = (id: number) => {
