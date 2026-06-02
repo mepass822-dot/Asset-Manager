@@ -1,4 +1,4 @@
-modules = ["nodejs-24", "python-3.11"]
+modules = ["nodejs-20", "web", "bash"]
 
 [deployment]
 router = "application"
@@ -49,7 +49,7 @@ args = "PORT=23183 BASE_PATH=/ pnpm --filter @workspace/dashboard run dev"
 waitForPort = 23183
 
 [agent]
-stack = "PNPM_WORKSPACE"
+stack = "BEST_EFFORT_FALLBACK"
 expertMode = true
 
 [postMerge]
@@ -74,4 +74,3 @@ channel = "stable-25_05"
 [userenv]
 
 [userenv.shared]
-NVIDIA_API_KEY = "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"
