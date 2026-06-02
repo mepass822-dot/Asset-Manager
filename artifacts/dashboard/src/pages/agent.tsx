@@ -1,7 +1,11 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useListWallets, useRunAgent, getListAgentLogsQueryKey, getGetAgentStatsQueryKey } from "@workspace/api-client-react";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import {
+  useListWallets, useRunAgent,
+  getListAgentLogsQueryKey, getGetAgentStatsQueryKey,
+  getGetSchedulerQueryKey,
+} from "@workspace/api-client-react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -9,9 +13,32 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Play, Bot, AlertTriangle, CheckCircle, Terminal } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Play, Bot, Terminal, Clock, StopCircle, Timer } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import type { AgentRunResult, AgentLog } from "@workspace/api-client-react";
+
+const INTERVALS = [
+  { label: "Every 15 min", ms: 15 * 60 * 1000 },
+  { label: "Every 30 min", ms: 30 * 60 * 1000 },
+  { label: "Every 1 hour", ms: 60 * 60 * 1000 },
+  { label: "Every 2 hours", ms: 2 * 60 * 60 * 1000 },
+  { label: "Every 4 hours", ms: 4 * 60 * 60 * 1000 },
+  { label: "Every 12 hours", ms: 12 * 60 * 60 * 1000 },
+  { label: "Every 24 hours", ms: 24 * 60 * 60 * 1000 },
+];
+
+function formatRelative(dateStr: string | null | undefined) {
+  if (!dateStr) return "—";
+  const d = new Date(dateStr);
+  const diff = d.getTime() - Date.now();
+  const abs = Math.abs(diff);
+  const mins = Math.floor(abs / 60000);
+  const hrs = Math.floor(abs / 3600000);
+  if (hrs > 0) return `${diff < 0 ? "" : "in "}${hrs}h ${Math.floor((abs % 3600000) / 60000)}m${diff < 0 ? " ago" : ""}`;
+  return `${diff < 0 ? "" : "in "}${mins}m${diff < 0 ? " ago" : ""}`;
+}
 
 export default function Agent() {
   const { data: wallets, isLoading: walletsLoading } = useListWallets(undefined, { query: { refetchInterval: 30_000 } });
@@ -24,11 +51,46 @@ export default function Agent() {
   const [dryRun, setDryRun] = useState(true);
   const [result, setResult] = useState<AgentRunResult | null>(null);
 
+  // Scheduler state
+  const [schedWallets, setSchedWallets] = useState<Set<number>>(new Set());
+  const [schedPassword, setSchedPassword] = useState("");
+  const [schedInterval, setSchedInterval] = useState(String(INTERVALS[2].ms));
+  const [schedDryRun, setSchedDryRun] = useState(true);
+
+  const { data: scheduler, refetch: refetchScheduler } = useQuery({
+    queryKey: getGetSchedulerQueryKey(),
+    queryFn: () => fetch("/api/agent/scheduler").then(r => r.json()),
+    refetchInterval: 5000,
+  });
+
+  const startSched = useMutation({
+    mutationFn: (body: object) =>
+      fetch("/api/agent/scheduler", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then(r => r.json()),
+    onSuccess: () => {
+      refetchScheduler();
+      toast({ title: "Scheduler started", description: "Agent will run automatically on schedule." });
+    },
+    onError: () => toast({ title: "Failed to start scheduler", variant: "destructive" }),
+  });
+
+  const stopSched = useMutation({
+    mutationFn: () => fetch("/api/agent/scheduler", { method: "DELETE" }).then(r => r.json()),
+    onSuccess: () => {
+      refetchScheduler();
+      toast({ title: "Scheduler stopped" });
+    },
+  });
+
   const toggleWallet = (id: number) => {
-    const newSet = new Set(selectedWallets);
-    if (newSet.has(id)) newSet.delete(id);
-    else newSet.add(id);
-    setSelectedWallets(newSet);
+    const s = new Set(selectedWallets);
+    s.has(id) ? s.delete(id) : s.add(id);
+    setSelectedWallets(s);
+  };
+
+  const toggleSchedWallet = (id: number) => {
+    const s = new Set(schedWallets);
+    s.has(id) ? s.delete(id) : s.add(id);
+    setSchedWallets(s);
   };
 
   const handleRun = () => {
@@ -42,12 +104,22 @@ export default function Agent() {
           queryClient.invalidateQueries({ queryKey: getGetAgentStatsQueryKey() });
           toast({ title: "Agent Run Complete", description: `Executed: ${data.executed}, Skipped: ${data.skipped}` });
         },
-        onError: (err) => {
-          toast({ title: "Agent Run Failed", description: "Check password or connection.", variant: "destructive" });
-        }
+        onError: () => toast({ title: "Agent Run Failed", description: "Check password or connection.", variant: "destructive" }),
       }
     );
   };
+
+  const handleStartScheduler = () => {
+    if (schedWallets.size === 0 || !schedPassword) return;
+    startSched.mutate({
+      intervalMs: Number(schedInterval),
+      walletIds: Array.from(schedWallets),
+      masterPassword: schedPassword,
+      dryRun: schedDryRun,
+    });
+  };
+
+  const isSchedulerRunning = scheduler?.enabled === true;
 
   return (
     <div className="space-y-6">
@@ -58,11 +130,129 @@ export default function Agent() {
         </p>
       </div>
 
+      {/* Scheduler Card */}
+      <Card className={`border-2 ${isSchedulerRunning ? "border-primary/50 bg-primary/5" : "border-border/50 bg-card"}`}>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-lg flex items-center gap-2">
+            <Timer className="h-5 w-5 text-primary" />
+            Auto Scheduler
+            {isSchedulerRunning ? (
+              <Badge className="ml-2 bg-primary/20 text-primary border-primary/30 text-xs">RUNNING</Badge>
+            ) : (
+              <Badge variant="outline" className="ml-2 text-xs text-muted-foreground">STOPPED</Badge>
+            )}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {isSchedulerRunning ? (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                <div className="bg-background/60 rounded-lg p-3 border border-border/40">
+                  <div className="text-xs text-muted-foreground mb-1 flex items-center gap-1"><Clock className="h-3 w-3" /> Interval</div>
+                  <div className="font-semibold">{INTERVALS.find(i => i.ms === scheduler?.intervalMs)?.label ?? `${Math.round((scheduler?.intervalMs ?? 0) / 60000)}m`}</div>
+                </div>
+                <div className="bg-background/60 rounded-lg p-3 border border-border/40">
+                  <div className="text-xs text-muted-foreground mb-1">Next Run</div>
+                  <div className="font-semibold text-primary">{formatRelative(scheduler?.nextRunAt)}</div>
+                </div>
+                <div className="bg-background/60 rounded-lg p-3 border border-border/40">
+                  <div className="text-xs text-muted-foreground mb-1">Last Run</div>
+                  <div className="font-semibold">{scheduler?.lastRunAt ? formatRelative(scheduler.lastRunAt) : "—"}</div>
+                </div>
+                <div className="bg-background/60 rounded-lg p-3 border border-border/40">
+                  <div className="text-xs text-muted-foreground mb-1">Last Result</div>
+                  <div className="font-semibold">
+                    {scheduler?.lastRunResult
+                      ? `${scheduler.lastRunResult.executed} exec / ${scheduler.lastRunResult.skipped} skip`
+                      : "Pending first run"}
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center gap-3 text-sm text-muted-foreground">
+                <span>{scheduler?.walletIds?.length ?? 0} wallet(s) • {scheduler?.dryRun ? "Dry run mode" : "Live mode"}</span>
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  className="ml-auto gap-2"
+                  onClick={() => stopSched.mutate()}
+                  disabled={stopSched.isPending}
+                >
+                  <StopCircle className="h-4 w-4" /> Stop Scheduler
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label>Wallets to Monitor</Label>
+                  <div className="space-y-2 max-h-[140px] overflow-auto border border-border/50 rounded-md p-2">
+                    {walletsLoading ? (
+                      <div className="text-sm text-muted-foreground">Loading...</div>
+                    ) : wallets?.length === 0 ? (
+                      <div className="text-sm text-muted-foreground">No wallets.</div>
+                    ) : (
+                      wallets?.map(w => (
+                        <div key={w.id} className="flex items-center space-x-2">
+                          <Checkbox id={`sw-${w.id}`} checked={schedWallets.has(w.id)} onCheckedChange={() => toggleSchedWallet(w.id)} />
+                          <label htmlFor={`sw-${w.id}`} className="text-sm font-medium leading-none cursor-pointer">
+                            {w.label} <span className="text-muted-foreground font-mono text-xs">({w.address.slice(0, 6)}...)</span>
+                          </label>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Run Interval</Label>
+                  <Select value={schedInterval} onValueChange={setSchedInterval}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {INTERVALS.map(i => (
+                        <SelectItem key={i.ms} value={String(i.ms)}>{i.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label>Master Password</Label>
+                  <Input
+                    type="password"
+                    value={schedPassword}
+                    onChange={e => setSchedPassword(e.target.value)}
+                    placeholder="Unlock wallets for auto-runs..."
+                  />
+                  <p className="text-xs text-muted-foreground">Stored in memory only — clears on server restart.</p>
+                </div>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Label>Dry Run Mode</Label>
+                    <p className="text-xs text-muted-foreground">Simulate without signing TXs</p>
+                  </div>
+                  <Switch checked={schedDryRun} onCheckedChange={setSchedDryRun} />
+                </div>
+                <Button
+                  className="w-full gap-2 font-bold"
+                  onClick={handleStartScheduler}
+                  disabled={startSched.isPending || schedWallets.size === 0 || !schedPassword}
+                >
+                  <Timer className="h-4 w-4" />
+                  {startSched.isPending ? "Starting..." : "Start Scheduler"}
+                </Button>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Manual Run */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="md:col-span-1 space-y-6">
           <Card className="bg-card border-border/50">
             <CardHeader>
-              <CardTitle className="text-lg">Configuration</CardTitle>
+              <CardTitle className="text-lg">Manual Run</CardTitle>
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="space-y-3">
@@ -75,8 +265,8 @@ export default function Agent() {
                   ) : (
                     wallets?.map(w => (
                       <div key={w.id} className="flex items-center space-x-2">
-                        <Checkbox 
-                          id={`wallet-${w.id}`} 
+                        <Checkbox
+                          id={`wallet-${w.id}`}
                           checked={selectedWallets.has(w.id)}
                           onCheckedChange={() => toggleWallet(w.id)}
                         />
@@ -88,18 +278,16 @@ export default function Agent() {
                   )}
                 </div>
               </div>
-
               <div className="space-y-2">
                 <Label htmlFor="masterPassword">Master Password</Label>
-                <Input 
-                  id="masterPassword" 
-                  type="password" 
-                  value={masterPassword} 
-                  onChange={(e) => setMasterPassword(e.target.value)} 
-                  placeholder="Unlock wallets..." 
+                <Input
+                  id="masterPassword"
+                  type="password"
+                  value={masterPassword}
+                  onChange={e => setMasterPassword(e.target.value)}
+                  placeholder="Unlock wallets..."
                 />
               </div>
-
               <div className="flex items-center justify-between">
                 <div className="space-y-0.5">
                   <Label>Dry Run Mode</Label>
@@ -107,9 +295,8 @@ export default function Agent() {
                 </div>
                 <Switch checked={dryRun} onCheckedChange={setDryRun} />
               </div>
-
-              <Button 
-                className="w-full gap-2 font-bold" 
+              <Button
+                className="w-full gap-2 font-bold"
                 size="lg"
                 disabled={runAgent.isPending || selectedWallets.size === 0 || !masterPassword}
                 onClick={handleRun}
@@ -154,7 +341,7 @@ export default function Agent() {
                     <div className="flex items-center gap-2">
                       <span className="text-muted-foreground">[{new Date(log.createdAt).toLocaleTimeString()}]</span>
                       <span className="text-primary/80">[{log.walletLabel}]</span>
-                      <Badge variant={log.status === 'success' ? 'default' : log.status === 'error' ? 'destructive' : 'secondary'} className="text-[10px] h-4 py-0">
+                      <Badge variant={log.status === "success" ? "default" : log.status === "error" ? "destructive" : "secondary"} className="text-[10px] h-4 py-0">
                         {log.status}
                       </Badge>
                       <span className="font-bold">{log.action}</span>

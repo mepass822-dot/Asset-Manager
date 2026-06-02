@@ -106,6 +106,36 @@ export interface RuleInput {
   actionJson?: string;
 }
 
+/**
+ * @nullable
+ */
+export type SchedulerStatusLastRunResult = {
+  executed?: number;
+  skipped?: number;
+} | null;
+
+export interface SchedulerStatus {
+  enabled: boolean;
+  /** @nullable */
+  intervalMs?: number | null;
+  walletIds: number[];
+  dryRun: boolean;
+  /** @nullable */
+  nextRunAt?: string | null;
+  /** @nullable */
+  lastRunAt?: string | null;
+  /** @nullable */
+  lastRunResult?: SchedulerStatusLastRunResult;
+}
+
+export interface SchedulerInput {
+  /** @minimum 60000 */
+  intervalMs: number;
+  walletIds: number[];
+  masterPassword: string;
+  dryRun?: boolean;
+}
+
 export interface RuleUpdate {
   name?: string;
   enabled?: boolean;

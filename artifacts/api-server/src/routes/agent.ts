@@ -6,6 +6,7 @@ import { decryptMnemonic } from "../lib/crypto";
 import { queryBalance, sendMEC, getPrivateKeyHex } from "../lib/blockchain";
 import { agentDecide, chatWithNvidia } from "../lib/nvidia";
 import { logger } from "../lib/logger";
+import { getSchedulerStatus, startScheduler, stopScheduler } from "../lib/scheduler";
 
 const router = Router();
 
@@ -154,6 +155,40 @@ router.post("/agent/run", async (req, res): Promise<void> => {
   }
 
   res.json({ executed, skipped, logs: createdLogs.map(mapLog) });
+});
+
+router.get("/agent/scheduler", (_req, res): void => {
+  res.json(getSchedulerStatus());
+});
+
+router.post("/agent/scheduler", (req, res): void => {
+  const { intervalMs, walletIds, masterPassword, dryRun } = req.body as {
+    intervalMs: number;
+    walletIds: number[];
+    masterPassword: string;
+    dryRun?: boolean;
+  };
+
+  if (!intervalMs || intervalMs < 60_000) {
+    res.status(400).json({ error: "intervalMs must be at least 60000 (1 minute)" });
+    return;
+  }
+  if (!Array.isArray(walletIds) || walletIds.length === 0) {
+    res.status(400).json({ error: "walletIds must be a non-empty array" });
+    return;
+  }
+  if (!masterPassword) {
+    res.status(400).json({ error: "masterPassword is required" });
+    return;
+  }
+
+  startScheduler({ intervalMs, walletIds, masterPassword, dryRun: dryRun ?? true });
+  res.json(getSchedulerStatus());
+});
+
+router.delete("/agent/scheduler", (_req, res): void => {
+  stopScheduler();
+  res.json(getSchedulerStatus());
 });
 
 router.post("/agent/chat", async (req, res): Promise<void> => {

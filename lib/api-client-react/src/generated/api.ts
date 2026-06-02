@@ -31,6 +31,8 @@ import type {
   Rule,
   RuleInput,
   RuleUpdate,
+  SchedulerInput,
+  SchedulerStatus,
   Wallet,
   WalletBalance,
   WalletInput
@@ -638,6 +640,224 @@ export const useAgentChat = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getAgentChatMutationOptions(options));
+    }
+
+export const getGetSchedulerUrl = () => {
+
+
+
+
+  return `/api/agent/scheduler`
+}
+
+/**
+ * @summary Get scheduler status
+ */
+export const getScheduler = async ( options?: RequestInit): Promise<SchedulerStatus> => {
+
+  return customFetch<SchedulerStatus>(getGetSchedulerUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetSchedulerQueryKey = () => {
+    return [
+    `/api/agent/scheduler`
+    ] as const;
+    }
+
+
+export const getGetSchedulerQueryOptions = <TData = Awaited<ReturnType<typeof getScheduler>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getScheduler>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetSchedulerQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getScheduler>>> = ({ signal }) => getScheduler({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getScheduler>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetSchedulerQueryResult = NonNullable<Awaited<ReturnType<typeof getScheduler>>>
+export type GetSchedulerQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get scheduler status
+ */
+
+export function useGetScheduler<TData = Awaited<ReturnType<typeof getScheduler>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getScheduler>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetSchedulerQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getStartSchedulerUrl = () => {
+
+
+
+
+  return `/api/agent/scheduler`
+}
+
+/**
+ * @summary Start or reconfigure the agent scheduler
+ */
+export const startScheduler = async (schedulerInput: SchedulerInput, options?: RequestInit): Promise<SchedulerStatus> => {
+
+  return customFetch<SchedulerStatus>(getStartSchedulerUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      schedulerInput,)
+  }
+);}
+
+
+
+
+export const getStartSchedulerMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof startScheduler>>, TError,{data: BodyType<SchedulerInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof startScheduler>>, TError,{data: BodyType<SchedulerInput>}, TContext> => {
+
+const mutationKey = ['startScheduler'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof startScheduler>>, {data: BodyType<SchedulerInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  startScheduler(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type StartSchedulerMutationResult = NonNullable<Awaited<ReturnType<typeof startScheduler>>>
+    export type StartSchedulerMutationBody = BodyType<SchedulerInput>
+    export type StartSchedulerMutationError = ErrorType<void>
+
+    /**
+ * @summary Start or reconfigure the agent scheduler
+ */
+export const useStartScheduler = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof startScheduler>>, TError,{data: BodyType<SchedulerInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof startScheduler>>,
+        TError,
+        {data: BodyType<SchedulerInput>},
+        TContext
+      > => {
+      return useMutation(getStartSchedulerMutationOptions(options));
+    }
+
+export const getStopSchedulerUrl = () => {
+
+
+
+
+  return `/api/agent/scheduler`
+}
+
+/**
+ * @summary Stop the agent scheduler
+ */
+export const stopScheduler = async ( options?: RequestInit): Promise<SchedulerStatus> => {
+
+  return customFetch<SchedulerStatus>(getStopSchedulerUrl(),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getStopSchedulerMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof stopScheduler>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof stopScheduler>>, TError,void, TContext> => {
+
+const mutationKey = ['stopScheduler'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof stopScheduler>>, void> = () => {
+
+
+          return  stopScheduler(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type StopSchedulerMutationResult = NonNullable<Awaited<ReturnType<typeof stopScheduler>>>
+
+    export type StopSchedulerMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Stop the agent scheduler
+ */
+export const useStopScheduler = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof stopScheduler>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof stopScheduler>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getStopSchedulerMutationOptions(options));
     }
 
 export const getListAgentLogsUrl = (params?: ListAgentLogsParams,) => {

@@ -40,12 +40,9 @@ export const createWalletBodyNetworkDefault = `mainnet`;
 
 export const CreateWalletBody = zod.object({
   "label": zod.string().min(1),
-  "mnemonic": zod.string().optional(),
-  "privateKey": zod.string().optional(),
+  "mnemonic": zod.string().min(1),
   "password": zod.string().min(1),
   "network": zod.string().default(createWalletBodyNetworkDefault)
-}).refine(d => d.mnemonic || d.privateKey, {
-  message: "Either mnemonic or privateKey must be provided",
 })
 
 
@@ -128,6 +125,68 @@ export const AgentChatBody = zod.object({
 export const AgentChatResponse = zod.object({
   "reply": zod.string(),
   "suggestedActions": zod.array(zod.string()).optional()
+})
+
+
+/**
+ * @summary Get scheduler status
+ */
+export const GetSchedulerResponse = zod.object({
+  "enabled": zod.boolean(),
+  "intervalMs": zod.number().nullish(),
+  "walletIds": zod.array(zod.number()),
+  "dryRun": zod.boolean(),
+  "nextRunAt": zod.string().nullish(),
+  "lastRunAt": zod.string().nullish(),
+  "lastRunResult": zod.object({
+  "executed": zod.number().optional(),
+  "skipped": zod.number().optional()
+}).nullish()
+})
+
+
+/**
+ * @summary Start or reconfigure the agent scheduler
+ */
+export const startSchedulerBodyIntervalMsMin = 60000;
+
+export const startSchedulerBodyDryRunDefault = true;
+
+export const StartSchedulerBody = zod.object({
+  "intervalMs": zod.number().min(startSchedulerBodyIntervalMsMin),
+  "walletIds": zod.array(zod.number()),
+  "masterPassword": zod.string(),
+  "dryRun": zod.boolean().default(startSchedulerBodyDryRunDefault)
+})
+
+export const StartSchedulerResponse = zod.object({
+  "enabled": zod.boolean(),
+  "intervalMs": zod.number().nullish(),
+  "walletIds": zod.array(zod.number()),
+  "dryRun": zod.boolean(),
+  "nextRunAt": zod.string().nullish(),
+  "lastRunAt": zod.string().nullish(),
+  "lastRunResult": zod.object({
+  "executed": zod.number().optional(),
+  "skipped": zod.number().optional()
+}).nullish()
+})
+
+
+/**
+ * @summary Stop the agent scheduler
+ */
+export const StopSchedulerResponse = zod.object({
+  "enabled": zod.boolean(),
+  "intervalMs": zod.number().nullish(),
+  "walletIds": zod.array(zod.number()),
+  "dryRun": zod.boolean(),
+  "nextRunAt": zod.string().nullish(),
+  "lastRunAt": zod.string().nullish(),
+  "lastRunResult": zod.object({
+  "executed": zod.number().optional(),
+  "skipped": zod.number().optional()
+}).nullish()
 })
 
 
