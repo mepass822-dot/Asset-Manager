@@ -75,7 +75,7 @@ function parseCosmosBalance(data: unknown, address: string): BalanceResult {
     ?? balances.find((b) => b.denom === "ugc")
     ?? balances[0];
   if (mec) {
-    const amount = (parseFloat(mec.amount) / 1_000_000).toFixed(6);
+    const amount = (parseFloat(mec.amount) / 100_000_000).toFixed(8);
     return { address, balance: amount, denom: "MEC" };
   }
   return { address, balance: "0.000000", denom: "MEC" };
@@ -236,7 +236,7 @@ export async function sendMEC(params: {
     prefix: MEC_PREFIX,
   });
 
-  const amountUMec = Math.floor(amountMEC * 1_000_000).toString();
+  const amountUMec = Math.floor(amountMEC * 100_000_000).toString();
   const fee = {
     amount: [{ denom: "umec", amount: MEC_FEE_UMEC }],
     gas: MEC_GAS_LIMIT,

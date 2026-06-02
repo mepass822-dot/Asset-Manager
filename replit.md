@@ -34,7 +34,7 @@ AI-driven wallet management agent for the Meta Earth (MEC) blockchain — monito
 
 - **Coin type 118** — confirmed from official SDK source (`instanceME` sets `m/44'/118'/0'/0/<index>`). Standard Cosmos SDK, NOT EVM coin type 60.
 - **Bech32 prefix `me`** — addresses are `me1...` everywhere. The ME Hub REST accepts `me1...` directly; no conversion needed.
-- **Native denom `umec`** — confirmed from chain supply and SDK source. 1 MEC = 1,000,000 umec.
+- **Native denom `umec`** — confirmed from live chain data. 1 MEC = 100,000,000 umec (10⁸, not 10⁶). Despite the "micro" prefix the chain uses 8 decimal places.
 - **Extension import uses provided address** — trust the extension's address directly; never re-derive from mnemonic during import.
 - **NVIDIA NIM via `nvidia-nim` base URL** — uses `meta/llama-3.1-70b-instruct` model.
 
@@ -75,7 +75,7 @@ Docs      : https://docs.mec.me
 
 - **WRONG PORT** was the root cause of balance showing 0: querying `118.175.0.247:1317` (old `gc_20-1` chain with `ugc` denom) instead of the correct `118.175.0.247:11317` (me-hub with `umec` denom).
 - **The `gc_20-1` chain at port 1317** is a legacy/different chain. It uses `ugc` denom and `gc1...` addresses. Do NOT confuse with the real ME Hub.
-- **1 MEC = 1,000,000 umec** — all amounts on-chain are in umec.
+- **1 MEC = 100,000,000 umec** — all amounts on-chain are in umec. The chain uses 8 decimal places (not 6).
 - **Extension import** — always use the address the extension provides; don't re-derive.
 
 ## User preferences

@@ -19,7 +19,7 @@ description: Correct ME Hub endpoints, denom, coin type, and key gotchas for the
 ## Chain Parameters
 
 - Bech32 prefix: `me` → addresses are `me1...`
-- Native denom: `umec` (1 MEC = 1,000,000 umec)
+- Native denom: `umec` (1 MEC = 100,000,000 umec — 8 decimal places, NOT 6 despite "micro" prefix)
 - HD path: `m/44'/118'/0'/0/<index>` — coin type **118** (Cosmos standard, NOT 60)
 - Gas limit: `500000`, gas price: `0.02 umec/gas`, network fee: `10000 umec`
 - Hub REST accepts `me1...` addresses directly
