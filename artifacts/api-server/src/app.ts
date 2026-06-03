@@ -5,20 +5,6 @@ import path from "path";
 import router from "./routes";
 import { logger } from "./lib/logger";
 import { requireAuth } from "./middlewares/firebase-auth";
-import { db, sweepConfigTable } from "@workspace/db";
-
-// Seed the sweep config row (with master address default) on startup
-(async () => {
-  try {
-    const rows = await db.select().from(sweepConfigTable).limit(1);
-    if (rows.length === 0) {
-      await db.insert(sweepConfigTable).values({});
-      logger.info("Sweep config seeded with master address default");
-    }
-  } catch (err) {
-    logger.warn({ err }, "Could not seed sweep config on startup");
-  }
-})();
 
 const app: Express = express();
 
@@ -27,16 +13,10 @@ app.use(
     logger,
     serializers: {
       req(req: { id: unknown; method: string; url?: string }) {
-        return {
-          id: req.id,
-          method: req.method,
-          url: req.url?.split("?")[0],
-        };
+        return { id: req.id, method: req.method, url: req.url?.split("?")[0] };
       },
       res(res: { statusCode: number }) {
-        return {
-          statusCode: res.statusCode,
-        };
+        return { statusCode: res.statusCode };
       },
     },
   }),

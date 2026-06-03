@@ -1,13 +1,7 @@
 import type { Request, Response, NextFunction } from "express";
-import { initializeApp, getApps, cert } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
+import "../lib/firebase-admin";
 import { logger } from "../lib/logger";
-
-const FIREBASE_PROJECT_ID = "mec-agent-ops";
-
-if (getApps().length === 0) {
-  initializeApp({ projectId: FIREBASE_PROJECT_ID });
-}
 
 const adminAuth = getAuth();
 

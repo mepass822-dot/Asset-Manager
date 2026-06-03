@@ -1,3 +1,4 @@
 - [Meta Earth chain config](meta-earth-chain.md) — correct endpoints, denom, port; wrong port (1317 vs 11317) was root cause of 0 balance.
 - [Wstaking rewards endpoint](wstaking-rewards.md) — withdrawable block rewards use ME-specific endpoint, NOT standard Cosmos distribution.
 - [Firebase auth setup](firebase-auth.md) — Firebase Auth (email/password) on frontend; Admin SDK token verification on backend with just projectId; DB stays PostgreSQL.
+- [Firebase RTDB migration](firebase-rtdb-migration.md) — Postgres+Drizzle fully replaced by RTDB; single init in firebase-admin.ts; string push-key IDs everywhere; helper layer in firebase-db.ts.
