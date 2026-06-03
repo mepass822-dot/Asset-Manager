@@ -1,59 +1,64 @@
 #!/bin/bash
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+ENV_FILE="$ROOT_DIR/env/.env.local"
+
 echo ""
 echo "═══════════════════════════════════════════════"
-echo "  MEC Agent — Vercel Deployment Setup"
+echo "  MEC Agent — Vercel Deployment"
 echo "═══════════════════════════════════════════════"
 echo ""
 
 # Check Vercel CLI
 if ! command -v vercel &> /dev/null; then
-  echo "❌ Vercel CLI not found. Installing..."
+  echo "Installing Vercel CLI..."
   npm install -g vercel
 fi
-
 echo "✅ Vercel CLI: $(vercel --version)"
 echo ""
 
-# Login check
-echo "── Step 1: Login to Vercel ─────────────────────"
-vercel login
-
-echo ""
-echo "── Step 2: Link project to Vercel ─────────────"
-vercel link --yes
-
-echo ""
-echo "── Step 3: Set environment variables ──────────"
-
-# FIREBASE_SERVICE_ACCOUNT — read from local file
-SA_FILE="$(dirname "$0")/sa_for_vercel.txt"
-if [ ! -f "$SA_FILE" ]; then
-  echo "❌ $SA_FILE not found. Run from the workspace root."
+# Check env file
+if [ ! -f "$ENV_FILE" ]; then
+  echo "❌ env/.env.local not found."
+  echo "   Copy env/.env.example → env/.env.local and fill in your secrets."
   exit 1
 fi
-
-echo "Setting FIREBASE_SERVICE_ACCOUNT..."
-cat "$SA_FILE" | vercel env add FIREBASE_SERVICE_ACCOUNT production --force 2>/dev/null || \
-  cat "$SA_FILE" | vercel env add FIREBASE_SERVICE_ACCOUNT production
-
-echo "Setting FIREBASE_SERVICE_ACCOUNT for preview..."
-cat "$SA_FILE" | vercel env add FIREBASE_SERVICE_ACCOUNT preview --force 2>/dev/null || \
-  cat "$SA_FILE" | vercel env add FIREBASE_SERVICE_ACCOUNT preview
-
+echo "✅ Found env/.env.local"
 echo ""
-echo "Setting NVIDIA_API_KEY..."
-echo "  → You'll be prompted to paste your NVIDIA_API_KEY."
-vercel env add NVIDIA_API_KEY production
-vercel env add NVIDIA_API_KEY preview
 
+# Login
+echo "── Step 1: Login ───────────────────────────────"
+vercel login
 echo ""
+
+# Link project
+echo "── Step 2: Link project ────────────────────────"
+vercel link --yes
+echo ""
+
+# Push all env vars from env/.env.local to Vercel (production + preview)
+echo "── Step 3: Sync secrets to Vercel ─────────────"
+while IFS= read -r line || [ -n "$line" ]; do
+  trimmed="${line#"${line%%[![:space:]]*}"}"  # ltrim
+  [ -z "$trimmed" ] && continue
+  [[ "$trimmed" == \#* ]] && continue
+  eq_pos="${trimmed%%=*}"
+  key="$eq_pos"
+  val="${trimmed#*=}"
+  [ -z "$key" ] && continue
+  echo "  → Setting $key..."
+  printf '%s' "$val" | vercel env add "$key" production --force 2>/dev/null \
+    || printf '%s' "$val" | vercel env add "$key" production
+  printf '%s' "$val" | vercel env add "$key" preview --force 2>/dev/null \
+    || printf '%s' "$val" | vercel env add "$key" preview
+done < "$ENV_FILE"
+echo ""
+
+# Deploy
 echo "── Step 4: Deploy to production ───────────────"
 vercel --prod
 
 echo ""
-echo "✅ Deployment complete!"
-echo "   Your app is live at the URL shown above."
-echo ""
-echo "NOTE: Keep scripts/sa_for_vercel.txt private — it contains your Firebase key."
+echo "✅ Deployment complete! Your app is live."

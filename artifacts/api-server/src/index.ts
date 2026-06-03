@@ -1,3 +1,4 @@
+import "./load-local-env"; // must be first — loads env/.env.local if present
 import app from "./app";
 import { logger } from "./lib/logger";
 

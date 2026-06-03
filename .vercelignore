@@ -2,6 +2,8 @@ node_modules
 service-account.json
 **/service-account.json
 scripts/sa_for_vercel.txt
+env/.env.local
+env/.env.*.local
 .git
 .cache
 .local
