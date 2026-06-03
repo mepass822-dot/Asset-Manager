@@ -1,4 +1,7 @@
 node_modules
+service-account.json
+**/service-account.json
+scripts/sa_for_vercel.txt
 .git
 .cache
 .local

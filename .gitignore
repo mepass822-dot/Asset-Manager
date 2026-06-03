@@ -55,6 +55,7 @@ Thumbs.db
 # Firebase service account key — never commit
 service-account.json
 **/service-account.json
+scripts/sa_for_vercel.txt
 
 # Local env files with secrets — never commit
 .env
