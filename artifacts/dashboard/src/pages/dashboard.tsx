@@ -11,11 +11,12 @@ export default function Dashboard() {
     queryFn: () => getAgentStats(),
     refetchInterval: 30_000,
   });
-  const { data: logs, isLoading: logsLoading } = useQuery({
+  const { data: rawLogs, isLoading: logsLoading } = useQuery({
     queryKey: getListAgentLogsQueryKey({ limit: 5 }),
     queryFn: () => listAgentLogs({ limit: 5 }),
     refetchInterval: 10_000,
   });
+  const logs = Array.isArray(rawLogs) ? rawLogs : [];
 
   return (
     <div className="space-y-6">
@@ -106,7 +107,7 @@ export default function Dashboard() {
                 Array.from({ length: 3 }).map((_, i) => (
                   <Skeleton key={i} className="h-12 w-full" />
                 ))
-              ) : logs && logs.length > 0 ? (
+              ) : logs.length > 0 ? (
                 logs.map((log) => (
                   <div key={log.id} className="flex items-center justify-between p-3 border border-border rounded-md bg-background/50">
                     <div className="flex flex-col">

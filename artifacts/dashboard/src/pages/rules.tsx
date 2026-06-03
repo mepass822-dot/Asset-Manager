@@ -81,7 +81,8 @@ const TYPE_COLORS: Record<string, string> = {
 };
 
 export default function Rules() {
-  const { data: rules, isLoading } = useListRules();
+  const { data: rawRules, isLoading } = useListRules();
+  const rules = Array.isArray(rawRules) ? rawRules : [];
   const createRule = useCreateRule();
   const updateRule = useUpdateRule();
   const deleteRule = useDeleteRule();
@@ -254,7 +255,7 @@ export default function Rules() {
       {/* Active rules table */}
       <div>
         <h2 className="text-sm font-semibold text-muted-foreground mb-3 uppercase tracking-wider">
-          Active Rules {rules && rules.length > 0 && <span className="text-primary">({rules.length})</span>}
+          Active Rules {rules.length > 0 && <span className="text-primary">({rules.length})</span>}
         </h2>
         <Card className="bg-card border-border/50">
           <Table>
@@ -275,7 +276,7 @@ export default function Rules() {
                     <TableCell colSpan={6}><Skeleton className="h-8 w-full" /></TableCell>
                   </TableRow>
                 ))
-              ) : !rules || rules.length === 0 ? (
+              ) : rules.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={6} className="text-center h-24 text-muted-foreground">
                     <ListTree className="h-6 w-6 mx-auto mb-2 opacity-30" />

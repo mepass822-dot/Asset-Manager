@@ -15,7 +15,7 @@ import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Play, Bot, Terminal, Clock, StopCircle, Timer, Shuffle, ShieldCheck, Coins, RefreshCw, Save, Eye, CheckSquare, Zap, ArrowRight, Lock, Unlock, AlertCircle } from "lucide-react";
+import { Play, Bot, Terminal, Clock, StopCircle, Timer, Shuffle, ShieldCheck, Coins, RefreshCw, Save, Eye, CheckSquare, Zap, ArrowRight, Lock, Unlock, AlertCircle, Key, CheckCircle2, XCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import type { AgentRunResult, AgentLog, SweepConfig } from "@workspace/api-client-react";
@@ -51,6 +51,32 @@ export default function Agent() {
   const [masterPassword, setMasterPassword] = useState("");
   const [dryRun, setDryRun] = useState(true);
   const [result, setResult] = useState<AgentRunResult | null>(null);
+
+  // NVIDIA API Key state
+  const [nvidiaKeyInput, setNvidiaKeyInput] = useState("");
+  const [nvidiaKeyEditing, setNvidiaKeyEditing] = useState(false);
+
+  const { data: nvidiaKeyStatus, refetch: refetchNvidiaKey } = useQuery({
+    queryKey: ["nvidia-key-status"],
+    queryFn: () => authFetch("/api/agent/nvidia-key").then(r => r.json()) as Promise<{ configured: boolean; source: string; masked: string }>,
+    refetchInterval: 30_000,
+  });
+
+  const saveNvidiaKey = useMutation({
+    mutationFn: (apiKey: string) =>
+      authFetch("/api/agent/nvidia-key", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ apiKey }) }).then(async (r) => {
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || "Failed to save key");
+        return d;
+      }),
+    onSuccess: () => {
+      refetchNvidiaKey();
+      setNvidiaKeyEditing(false);
+      setNvidiaKeyInput("");
+      toast({ title: "NVIDIA API Key saved", description: "The AI agent will now use this key for all requests." });
+    },
+    onError: (err: Error) => toast({ title: "Failed to save key", description: err.message, variant: "destructive" }),
+  });
 
   // Sweep config state
   const { data: sweepConfig, refetch: refetchSweepConfig } = useQuery({
@@ -213,6 +239,76 @@ export default function Agent() {
           Execute automated operations across selected wallets.
         </p>
       </div>
+
+      {/* NVIDIA API Key Card */}
+      <Card className="border-border/50 bg-card">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-lg flex items-center gap-2">
+            <Key className="h-5 w-5 text-primary" />
+            NVIDIA API Key
+            {nvidiaKeyStatus?.configured ? (
+              <Badge className="ml-2 bg-emerald-500/20 text-emerald-400 border-emerald-500/30 text-xs flex items-center gap-1">
+                <CheckCircle2 className="h-3 w-3" /> CONFIGURED
+              </Badge>
+            ) : (
+              <Badge variant="outline" className="ml-2 text-xs text-amber-400 border-amber-500/40">
+                <XCircle className="h-3 w-3 mr-1" /> NOT SET
+              </Badge>
+            )}
+            {nvidiaKeyStatus?.source === "env" && (
+              <Badge variant="outline" className="text-xs text-muted-foreground">from env</Badge>
+            )}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {nvidiaKeyStatus?.configured && !nvidiaKeyEditing ? (
+            <div className="flex items-center gap-4">
+              <div className="flex-1 bg-background/60 rounded-lg border border-border/40 px-3 py-2 font-mono text-sm text-muted-foreground">
+                {nvidiaKeyStatus.masked}
+              </div>
+              {nvidiaKeyStatus.source !== "env" && (
+                <Button size="sm" variant="outline" onClick={() => setNvidiaKeyEditing(true)} className="gap-2 shrink-0">
+                  <Key className="h-3.5 w-3.5" /> Update Key
+                </Button>
+              )}
+              {nvidiaKeyStatus.source === "env" && (
+                <span className="text-xs text-muted-foreground shrink-0">Set via environment variable — cannot override here.</span>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {!nvidiaKeyStatus?.configured && (
+                <p className="text-sm text-amber-400 flex items-center gap-1.5">
+                  <AlertCircle className="h-4 w-4 shrink-0" />
+                  The AI agent and chat require an NVIDIA NIM API key. Get yours at <a href="https://build.nvidia.com" target="_blank" rel="noopener noreferrer" className="underline hover:text-amber-300">build.nvidia.com</a>.
+                </p>
+              )}
+              <div className="flex gap-2">
+                <Input
+                  type="password"
+                  value={nvidiaKeyInput}
+                  onChange={e => setNvidiaKeyInput(e.target.value)}
+                  placeholder="nvapi-..."
+                  className="font-mono text-sm flex-1"
+                  onKeyDown={e => { if (e.key === "Enter" && nvidiaKeyInput.length >= 10) saveNvidiaKey.mutate(nvidiaKeyInput); }}
+                />
+                <Button
+                  className="gap-2 shrink-0"
+                  disabled={saveNvidiaKey.isPending || nvidiaKeyInput.length < 10}
+                  onClick={() => saveNvidiaKey.mutate(nvidiaKeyInput)}
+                >
+                  {saveNvidiaKey.isPending ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                  Save Key
+                </Button>
+                {nvidiaKeyEditing && (
+                  <Button variant="outline" onClick={() => { setNvidiaKeyEditing(false); setNvidiaKeyInput(""); }}>Cancel</Button>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground">Stored securely in the database. You can also set <code className="bg-background/60 px-1 rounded">NVIDIA_API_KEY</code> as an environment variable for higher priority.</p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Sweep Config Card */}
       <Card className="border-border/50 bg-card">

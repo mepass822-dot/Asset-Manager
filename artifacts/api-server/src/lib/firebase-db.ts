@@ -121,6 +121,17 @@ export interface WhitelistEntry {
   createdAt: string;
 }
 
+// ── App settings (NVIDIA key, etc.) ──────────────────────────────────────────
+
+export async function getNvidiaKeyFromDB(): Promise<string | null> {
+  const snap = await rtdb.ref("settings/nvidiaApiKey").get();
+  return snap.exists() ? (snap.val() as string) : null;
+}
+
+export async function setNvidiaKeyInDB(key: string): Promise<void> {
+  await rtdb.ref("settings/nvidiaApiKey").set(key);
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 export function now(): string {

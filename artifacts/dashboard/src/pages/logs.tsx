@@ -38,11 +38,12 @@ export default function Logs() {
 
   const { data: wallets } = useListWallets();
   const logsParams = walletId !== "all" ? { walletId: parseInt(walletId) } : undefined;
-  const { data: logs, isLoading, refetch, isFetching } = useQuery({
+  const { data: rawLogs, isLoading, refetch, isFetching } = useQuery({
     queryKey: getListAgentLogsQueryKey(logsParams),
     queryFn: () => listAgentLogs(logsParams),
     refetchInterval: 10_000,
   });
+  const logs = Array.isArray(rawLogs) ? rawLogs : [];
 
   const clearLogs = useMutation({
     mutationFn: () =>
@@ -99,7 +100,7 @@ export default function Logs() {
             size="sm"
             className="text-destructive hover:bg-destructive/10 gap-1.5"
             onClick={() => clearLogs.mutate()}
-            disabled={clearLogs.isPending || !logs?.length}
+            disabled={clearLogs.isPending || logs.length === 0}
             title="Clear all logs"
           >
             <Trash2 className="h-3.5 w-3.5" />
@@ -109,7 +110,7 @@ export default function Logs() {
       </div>
 
       {/* Summary badges */}
-      {logs && logs.length > 0 && (
+      {logs.length > 0 && (
         <div className="flex gap-3 flex-wrap">
           {(["success", "error", "blocked", "dry_run"] as const).map((status) => {
             const count = logs.filter((l: { status: string }) => l.status === status).length;
@@ -147,7 +148,7 @@ export default function Logs() {
                   <TableCell><Skeleton className="h-4 w-48" /></TableCell>
                 </TableRow>
               ))
-            ) : !logs || logs.length === 0 ? (
+            ) : logs.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={5} className="text-center h-24 text-muted-foreground text-sm">
                   No activity yet. Run the agent or execute a sweep to see logs here.

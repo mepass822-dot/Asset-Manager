@@ -2,6 +2,7 @@ import { Router } from "express";
 import {
   getAllItems, pushItem, getItem, walletsRef, rulesRef, logsRef, whitelistRef,
   insertLog, getSweepConfig, setSweepConfig,
+  getNvidiaKeyFromDB, setNvidiaKeyInDB,
   type Wallet, type Rule, type AgentLog, type WhitelistEntry, type WithId, now,
 } from "../lib/firebase-db";
 import { AgentChatBody } from "@workspace/api-zod";
@@ -12,7 +13,13 @@ import { logger } from "../lib/logger";
 import { getSchedulerStatus, startScheduler, stopScheduler } from "../lib/scheduler";
 
 const router = Router();
-const getNvidiaKey = () => process.env["NVIDIA_API_KEY"] ?? "";
+
+async function getEffectiveNvidiaKey(): Promise<string> {
+  const envKey = process.env["NVIDIA_API_KEY"] ?? "";
+  if (envKey) return envKey;
+  const dbKey = await getNvidiaKeyFromDB();
+  return dbKey ?? "";
+}
 
 // ── Sweep Config ──────────────────────────────────────────────────────────────
 
@@ -31,6 +38,32 @@ router.post("/agent/sweep-config", async (req, res): Promise<void> => {
   };
   const updated = await setSweepConfig({ masterAddress, enabled, autoClaimStaking, dividendWindowDays, minSweepAmountMec });
   res.json(updated);
+});
+
+// ── NVIDIA API Key ────────────────────────────────────────────────────────────
+
+router.get("/agent/nvidia-key", async (_req, res): Promise<void> => {
+  const envKey = process.env["NVIDIA_API_KEY"] ?? "";
+  if (envKey) {
+    res.json({ configured: true, source: "env", masked: `${envKey.slice(0, 8)}${"•".repeat(Math.max(0, envKey.length - 12))}${envKey.slice(-4)}` });
+    return;
+  }
+  const dbKey = await getNvidiaKeyFromDB();
+  if (dbKey) {
+    res.json({ configured: true, source: "db", masked: `${dbKey.slice(0, 8)}${"•".repeat(Math.max(0, dbKey.length - 12))}${dbKey.slice(-4)}` });
+  } else {
+    res.json({ configured: false, source: "none", masked: "" });
+  }
+});
+
+router.post("/agent/nvidia-key", async (req, res): Promise<void> => {
+  const { apiKey } = req.body as { apiKey?: string };
+  if (!apiKey || typeof apiKey !== "string" || apiKey.trim().length < 10) {
+    res.status(400).json({ error: "apiKey must be at least 10 characters" });
+    return;
+  }
+  await setNvidiaKeyInDB(apiKey.trim());
+  res.json({ ok: true });
 });
 
 // ── Agent Run ─────────────────────────────────────────────────────────────────
@@ -72,9 +105,9 @@ router.post("/agent/run", async (req, res): Promise<void> => {
   const whitelistEntries = await getAllItems<WhitelistEntry>(whitelistRef());
   const whitelistAddresses = new Set(whitelistEntries.map((e) => e.address));
 
-  const apiKey = getNvidiaKey();
+  const apiKey = await getEffectiveNvidiaKey();
   if (!apiKey) {
-    const log = await insertLog({ walletId: null, action: "agent_run", status: "error", txHash: null, amount: null, message: "NVIDIA_API_KEY is not configured. Please add it in environment secrets." });
+    const log = await insertLog({ walletId: null, action: "agent_run", status: "error", txHash: null, amount: null, message: "NVIDIA_API_KEY is not configured. Add it in Agent Settings or as an environment secret." });
     createdLogs.push(log);
     res.json({ executed: 0, skipped: walletIds.length, logs: createdLogs.map(mapLog) });
     return;
@@ -195,9 +228,9 @@ router.post("/agent/chat", async (req, res): Promise<void> => {
   const history: Array<{ role: "user" | "assistant"; content: string }> =
     Array.isArray((req.body as any).history) ? (req.body as any).history : [];
 
-  const apiKey = getNvidiaKey();
+  const apiKey = await getEffectiveNvidiaKey();
   if (!apiKey) {
-    res.json({ reply: "NVIDIA_API_KEY is not configured. Please add it as an environment secret to enable the AI agent chat.", suggestedActions: ["Add NVIDIA_API_KEY to environment secrets"] });
+    res.json({ reply: "NVIDIA_API_KEY is not configured. Please add it in Agent Settings or as an environment secret to enable AI chat.", suggestedActions: ["Add NVIDIA API key in Agent Settings"] });
     return;
   }
 

@@ -19,7 +19,8 @@ import { Plus, Trash2, ShieldCheck, ShieldAlert } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 export default function Whitelist() {
-  const { data: entries, isLoading } = useListWhitelist();
+  const { data: rawEntries, isLoading } = useListWhitelist();
+  const entries = Array.isArray(rawEntries) ? rawEntries : [];
   const createEntry = useCreateWhitelistEntry();
   const deleteEntry = useDeleteWhitelistEntry();
   const queryClient = useQueryClient();
@@ -118,7 +119,7 @@ export default function Whitelist() {
         </Dialog>
       </div>
 
-      {!isLoading && entries?.length === 0 && (
+      {!isLoading && entries.length === 0 && (
         <Alert className="border-yellow-500/50 bg-yellow-500/10">
           <ShieldAlert className="h-4 w-4 text-yellow-500" />
           <AlertDescription className="text-yellow-200">
@@ -127,7 +128,7 @@ export default function Whitelist() {
         </Alert>
       )}
 
-      {!isLoading && entries && entries.length > 0 && (
+      {!isLoading && entries.length > 0 && (
         <Alert className="border-green-500/50 bg-green-500/10">
           <ShieldCheck className="h-4 w-4 text-green-500" />
           <AlertDescription className="text-green-200">
@@ -151,7 +152,7 @@ export default function Whitelist() {
             <div className="space-y-3">
               {[1, 2, 3].map((i) => <Skeleton key={i} className="h-12 w-full" />)}
             </div>
-          ) : entries && entries.length > 0 ? (
+          ) : entries.length > 0 ? (
             <Table>
               <TableHeader>
                 <TableRow>
