@@ -8,6 +8,7 @@ env/.env.*.local
 .cache
 .local
 attached_assets
+!attached_assets/mec-bridge-extension/bridge-extension.zip
 artifacts/mockup-sandbox
 artifacts/dashboard/node_modules
 artifacts/dashboard/dist

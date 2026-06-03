@@ -4,6 +4,12 @@
   "installCommand": "pnpm install --frozen-lockfile",
   "buildCommand": "pnpm --filter @workspace/dashboard run build && pnpm --filter @workspace/api-server run build && mkdir -p api && cp artifacts/api-server/api/index.js api/index.js",
   "outputDirectory": "artifacts/dashboard/dist/public",
+  "functions": {
+    "api/index.js": {
+      "runtime": "nodejs20.x",
+      "maxDuration": 60
+    }
+  },
   "rewrites": [
     { "source": "/api/:path*", "destination": "/api" },
     { "source": "/(.*)", "destination": "/index.html" }
