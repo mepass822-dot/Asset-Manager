@@ -3,9 +3,8 @@ import cors from "cors";
 import { pinoHttp } from "pino-http";
 import path from "path";
 import router from "./routes";
-import authRouter from "./routes/auth";
 import { logger } from "./lib/logger";
-import { requireAuth } from "./middlewares/replit-auth";
+import { requireAuth } from "./middlewares/firebase-auth";
 import { db, sweepConfigTable } from "@workspace/db";
 
 // Seed the sweep config row (with master address default) on startup
@@ -57,10 +56,7 @@ app.get("/api/healthz", (_req, res) => {
   res.json({ status: "ok" });
 });
 
-// Auth routes — no auth required (reads Replit headers directly)
-app.use("/api", authRouter);
-
-// All other /api routes require a valid Replit user
+// All other /api routes require a valid Firebase ID token
 app.use("/api", requireAuth, router);
 
 export default app;
