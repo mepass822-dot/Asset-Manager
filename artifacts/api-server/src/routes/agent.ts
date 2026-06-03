@@ -2,7 +2,7 @@ import { Router } from "express";
 import {
   getAllItems, walletsRef, rulesRef, logsRef, whitelistRef,
   insertLog, getSweepConfig, setSweepConfig,
-  getNvidiaKeyFromDB, setNvidiaKeyInDB,
+  getNvidiaKeyFromDB, setNvidiaKeyInDB, clearPath,
   type Wallet, type Rule, type AgentLog, type WhitelistEntry, type WithId,
 } from "../lib/firebase-db";
 import { AgentChatBody } from "@workspace/api-zod";
@@ -501,7 +501,7 @@ router.get("/agent/logs", async (req, res): Promise<void> => {
 });
 
 router.delete("/agent/logs", async (_req, res): Promise<void> => {
-  await logsRef().remove();
+  await clearPath(logsRef());
   res.json({ cleared: true });
 });
 
