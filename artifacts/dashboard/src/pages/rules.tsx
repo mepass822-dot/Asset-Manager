@@ -297,10 +297,10 @@ export default function Rules() {
                         {rule.ruleType}
                       </Badge>
                     </TableCell>
-                    <TableCell className="font-mono text-xs text-muted-foreground max-w-[180px] truncate" title={rule.conditionJson}>
+                    <TableCell className="font-mono text-xs text-muted-foreground max-w-[180px] truncate" title={rule.conditionJson ?? undefined}>
                       {rule.conditionJson}
                     </TableCell>
-                    <TableCell className="font-mono text-xs text-muted-foreground max-w-[180px] truncate" title={rule.actionJson}>
+                    <TableCell className="font-mono text-xs text-muted-foreground max-w-[180px] truncate" title={rule.actionJson ?? undefined}>
                       {rule.actionJson}
                     </TableCell>
                     <TableCell className="text-right">
