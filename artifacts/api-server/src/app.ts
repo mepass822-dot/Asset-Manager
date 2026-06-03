@@ -43,4 +43,14 @@ app.get("/api/healthz", (_req, res) => {
 // All other /api routes require a valid Firebase ID token
 app.use("/api", requireAuth, router);
 
+// In production, serve the built dashboard static files
+if (process.env.NODE_ENV === "production") {
+  const dashboardDist = path.join(__dirname, "../../dashboard/dist/public");
+  app.use(express.static(dashboardDist, { etag: false }));
+  // SPA fallback — all non-API routes serve index.html
+  app.get("*", (_req, res) => {
+    res.sendFile(path.join(dashboardDist, "index.html"));
+  });
+}
+
 export default app;
