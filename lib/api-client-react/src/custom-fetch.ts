@@ -8,7 +8,10 @@ export type BodyType<T> = T;
 
 export type AuthTokenGetter = () => Promise<string | null> | string | null;
 
-const NO_BODY_STATUS = new Set([204, 205, 304]);
+const NO_BODY_STATUS = new Set([204, 205]);
+// 304 is intentionally excluded: if a 304 leaks to JS (e.g. in proxied
+// environments), throwing lets React Query keep its previously cached data
+// rather than overwriting it with null and crashing any .map() calls.
 const DEFAULT_JSON_ACCEPT = "application/json, application/problem+json";
 
 // ---------------------------------------------------------------------------

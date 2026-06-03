@@ -8,6 +8,10 @@ import { requireAuth } from "./middlewares/firebase-auth";
 
 const app: Express = express();
 
+// Disable ETags — they cause 304 responses which the API client
+// interprets as "no body" (returning null), breaking .map() calls in the UI.
+app.set("etag", false);
+
 app.use(
   pinoHttp({
     logger,
