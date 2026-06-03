@@ -1,0 +1,78 @@
+~/workspace$ bash scripts/deploy-vercel.sh
+
+═══════════════════════════════════════════════
+  MEC Agent — Vercel Deployment
+═══════════════════════════════════════════════
+
+Vercel CLI 54.7.1
+✅ Vercel CLI: 54.7.1
+
+✅ Found env/.env.local
+
+── Step 1: Login ───────────────────────────────
+Vercel CLI 54.7.1 (Node.js 20.20.0)
+> NOTE: The Vercel CLI now collects telemetry regarding usage of the CLI.
+> This information is used to shape the CLI roadmap and prioritize features.
+> You can learn more, including how to opt-out if you'd not like to participate in this program, by visiting the following URL:
+> https://vercel.com/docs/cli/about-telemetry
+> 
+  Visit https://vercel.com/oauth/device?user_code=RKRR-CRJN
+
+  Congratulations! You are now signed in.
+
+  To deploy something, run `vercel`.
+
+  💡 To deploy every commit automatically,
+  connect a Git Repository (vercel.link/git (https://vercel.link/git)).
+
+── Step 2: Link project ────────────────────────
+Vercel CLI 54.7.1 (Node.js 20.20.0)
+
+  Set up "~/workspace"
+  Local settings detected in vercel.json:
+  Build Command: pnpm --filter @workspace/dashboard run build && pnpm --filter @workspace/api-server run build && mkdir -p api && cp artifacts/api-server/api/index.js api/index.js
+  Install Command: pnpm install --frozen-lockfile
+  Output Directory: artifacts/dashboard/dist/public
+  No framework detected. Default Project Settings:
+  Development Command: None
+  Linked      mecprojects/workspace
+> Found multiple remote URLs.
+? Which remote do you want to connect? https://github.com/mepass822-dot/Asset-Manager (origin)
+> Connecting GitHub repository: https://github.com/mepass822-dot/Asset-Manager
+> Connected
+
+── Step 3: Sync secrets to Vercel ─────────────
+  → Setting FIREBASE_SERVICE_ACCOUNT...
+{
+  "status": "action_required",
+  "reason": "git_branch_required",
+  "message": "Add FIREBASE_SERVICE_ACCOUNT to which Git branch for Preview? Pass branch as third argument, or omit for all Preview branches.",
+  "next": [
+    {
+      "command": "vercel env add FIREBASE_SERVICE_ACCOUNT preview <gitbranch> --value <value> --yes --force",
+      "when": "Add to a specific Git branch"
+    },
+    {
+      "command": "vercel env add FIREBASE_SERVICE_ACCOUNT preview --value <value> --yes --force",
+      "when": "Add to all Preview branches"
+    }
+  ],
+  "hint": "Run one of the commands in next[] to complete without prompting."
+}
+Vercel CLI 54.7.1 (Node.js 20.20.0)
+WARNING! Did you mean to deploy the subdirectory "env"? Use `vc --cwd env` instead.
+{
+  "status": "action_required",
+  "reason": "git_branch_required",
+  "message": "Add FIREBASE_SERVICE_ACCOUNT to which Git branch for Preview? Pass branch as third argument, or omit for all Preview branches.",
+  "next": [
+    {
+      "command": "vercel env add FIREBASE_SERVICE_ACCOUNT preview <gitbranch> --value <value> --yes",
+      "when": "Add to a specific Git branch"
+    },
+    {
+      "command": "vercel env add FIREBASE_SERVICE_ACCOUNT preview --value <value> --yes",
+      "when": "Add to all Preview branches"
+    }
+  ],
+  "hint": "Run one of the commands in next[] to complete without prompting."

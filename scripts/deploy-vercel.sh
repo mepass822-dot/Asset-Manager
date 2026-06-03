@@ -28,9 +28,9 @@ fi
 echo "✅ Found env/.env.local"
 echo ""
 
-# Login
+# Login (skip if already authenticated)
 echo "── Step 1: Login ───────────────────────────────"
-vercel login
+vercel whoami 2>/dev/null && echo "✅ Already logged in" || vercel login
 echo ""
 
 # Link project
@@ -38,27 +38,31 @@ echo "── Step 2: Link project ───────────────�
 vercel link --yes
 echo ""
 
-# Push all env vars from env/.env.local to Vercel (production + preview)
+# Push all env vars from env/.env.local to Vercel
+# Targets: production + development only (preview requires a git branch arg)
 echo "── Step 3: Sync secrets to Vercel ─────────────"
 while IFS= read -r line || [ -n "$line" ]; do
-  trimmed="${line#"${line%%[![:space:]]*}"}"  # ltrim
+  # Skip blank lines and comments
+  trimmed="${line#"${line%%[![:space:]]*}"}"
   [ -z "$trimmed" ] && continue
   [[ "$trimmed" == \#* ]] && continue
-  eq_pos="${trimmed%%=*}"
-  key="$eq_pos"
+
+  key="${trimmed%%=*}"
   val="${trimmed#*=}"
-  [ -z "$key" ] && continue
-  echo "  → Setting $key..."
-  printf '%s' "$val" | vercel env add "$key" production --force 2>/dev/null \
-    || printf '%s' "$val" | vercel env add "$key" production
-  printf '%s' "$val" | vercel env add "$key" preview --force 2>/dev/null \
-    || printf '%s' "$val" | vercel env add "$key" preview
+  [ -z "$key" ] || [ -z "$val" ] && continue
+
+  echo "  → $key"
+  vercel env add "$key" production --value "$val" --yes --force 2>/dev/null \
+    || vercel env add "$key" production --value "$val" --yes
+  vercel env add "$key" development --value "$val" --yes --force 2>/dev/null \
+    || vercel env add "$key" development --value "$val" --yes
 done < "$ENV_FILE"
+echo "✅ Secrets synced"
 echo ""
 
-# Deploy
+# Deploy to production
 echo "── Step 4: Deploy to production ───────────────"
-vercel --prod
+vercel --prod --yes
 
 echo ""
 echo "✅ Deployment complete! Your app is live."
