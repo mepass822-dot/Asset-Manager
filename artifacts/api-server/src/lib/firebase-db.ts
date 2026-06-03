@@ -11,8 +11,19 @@ export const sweepRef     = () => rtdb.ref("sweep_config");
 
 export type WithId<T> = T & { id: string };
 
+const RTDB_TIMEOUT_MS = 12_000;
+
+function withTimeout<T>(promise: Promise<T>, ms = RTDB_TIMEOUT_MS): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(`Firebase RTDB operation timed out after ${ms}ms`)), ms)
+    ),
+  ]);
+}
+
 export async function getAllItems<T>(ref: Reference): Promise<WithId<T>[]> {
-  const snap = await ref.get();
+  const snap = await withTimeout(ref.get());
   if (!snap.exists()) return [];
   const val = snap.val() as Record<string, T>;
   return Object.entries(val).map(([id, data]) => ({ ...(data as object), id } as WithId<T>));
@@ -20,22 +31,22 @@ export async function getAllItems<T>(ref: Reference): Promise<WithId<T>[]> {
 
 export async function pushItem<T extends object>(ref: Reference, data: T): Promise<WithId<T>> {
   const newRef = ref.push();
-  await newRef.set(data);
+  await withTimeout(newRef.set(data));
   return { ...data, id: newRef.key! };
 }
 
 export async function getItem<T>(ref: Reference, id: string): Promise<WithId<T> | null> {
-  const snap = await ref.child(id).get();
+  const snap = await withTimeout(ref.child(id).get());
   if (!snap.exists()) return null;
   return { ...(snap.val() as T), id };
 }
 
 export async function updateItem(ref: Reference, id: string, updates: object): Promise<void> {
-  await ref.child(id).update(updates);
+  await withTimeout(ref.child(id).update(updates));
 }
 
 export async function deleteItem(ref: Reference, id: string): Promise<void> {
-  await ref.child(id).remove();
+  await withTimeout(ref.child(id).remove());
 }
 
 // ── Sweep config (single document) ──────────────────────────────────────────
@@ -59,9 +70,9 @@ const SWEEP_DEFAULTS: SweepConfig = {
 };
 
 export async function getSweepConfig(): Promise<SweepConfig> {
-  const snap = await sweepRef().get();
+  const snap = await withTimeout(sweepRef().get());
   if (!snap.exists()) {
-    await sweepRef().set(SWEEP_DEFAULTS);
+    await withTimeout(sweepRef().set(SWEEP_DEFAULTS));
     return SWEEP_DEFAULTS;
   }
   return snap.val() as SweepConfig;
@@ -70,7 +81,7 @@ export async function getSweepConfig(): Promise<SweepConfig> {
 export async function setSweepConfig(updates: Partial<SweepConfig>): Promise<SweepConfig> {
   const current = await getSweepConfig();
   const updated: SweepConfig = { ...current, ...updates, updatedAt: new Date().toISOString() };
-  await sweepRef().set(updated);
+  await withTimeout(sweepRef().set(updated));
   return updated;
 }
 
@@ -124,12 +135,12 @@ export interface WhitelistEntry {
 // ── App settings (NVIDIA key, etc.) ──────────────────────────────────────────
 
 export async function getNvidiaKeyFromDB(): Promise<string | null> {
-  const snap = await rtdb.ref("settings/nvidiaApiKey").get();
+  const snap = await withTimeout(rtdb.ref("settings/nvidiaApiKey").get());
   return snap.exists() ? (snap.val() as string) : null;
 }
 
 export async function setNvidiaKeyInDB(key: string): Promise<void> {
-  await rtdb.ref("settings/nvidiaApiKey").set(key);
+  await withTimeout(rtdb.ref("settings/nvidiaApiKey").set(key));
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
