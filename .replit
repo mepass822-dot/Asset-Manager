@@ -79,3 +79,4 @@ channel = "stable-25_05"
 [userenv]
 
 [userenv.shared]
+FIREBASE_SERVICE_ACCOUNT = "YNmugtV8vemtthaVmKB1gW1Dayoe9ao7cfQGXsmO"
