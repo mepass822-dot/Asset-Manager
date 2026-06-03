@@ -4,6 +4,7 @@ import walletsRouter from "./wallets";
 import agentRouter from "./agent";
 import rulesRouter from "./rules";
 import whitelistRouter from "./whitelist";
+import authRouter from "./auth";
 
 const router: IRouter = Router();
 
